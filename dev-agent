@@ -6,15 +6,25 @@ if [ -z "$1" ]; then
     echo "Usage: dev-agent \"Your coding task description\""
     echo ""
     echo "Examples:"
-    echo '  dev-agent "Create a Python script to parse JSON files"'
-    echo '  dev-agent "Build a React component for a todo list"'
-    echo '  dev-agent "Debug why my API call is failing"'
+    echo '  dev-agent "Add error handling to server.js voice transcription"'
+    echo '  dev-agent "Update dashboard.html with new metrics"'
+    echo '  dev-agent "Create a new endpoint in server.js for stats"'
+    echo '  dev-agent "Debug why voice processing fails in Chrome"'
+    echo ""
+    echo "Workspace: /Users/obiwon/.openclaw/agents/developer/workspace/"
+    echo "Project: voice.artgenies.com"
     echo ""
     echo "Available tools:"
     echo "  - File operations (read, write, edit)"
     echo "  - Shell execution (exec)"
     echo "  - Web fetching (web_fetch)"
-    echo "  - Skills: document-creator, exa-search, qmd"
+    echo "  - Process management"
+    echo ""
+    echo "Key files:"
+    echo "  - server.js - Node.js backend"
+    echo "  - app.js - Frontend voice handling"
+    echo "  - index.html - Main UI"
+    echo "  - dashboard.html - Stats dashboard"
     exit 1
 fi
 
@@ -23,16 +33,35 @@ LABEL="dev-$(date +%s)"
 
 echo "🚀 Spawning Developer Agent (Pony Alpha)..."
 echo "Task: $TASK"
-echo "Tools: read, write, edit, exec, web_fetch"
-echo "Skills: document-creator, exa-search, qmd"
+echo "Workspace: /Users/obiwon/.openclaw/agents/developer/workspace/"
+echo "Project: voice.artgenies.com"
 echo ""
 
-# Use openclaw CLI to spawn with proper agent configuration
+# Create a task file for the agent
+echo "TASK: $TASK" > /Users/obiwon/.openclaw/agents/developer/workspace/current-task.txt
+echo "TIMESTAMP: $(date)" >> /Users/obiwon/.openclaw/agents/developer/workspace/current-task.txt
+echo "" >> /Users/obiwon/.openclaw/agents/developer/workspace/current-task.txt
+echo "WORKSPACE FILES:" >> /Users/obiwon/.openclaw/agents/developer/workspace/current-task.txt
+ls -la /Users/obiwon/.openclaw/agents/developer/workspace/ >> /Users/obiwon/.openclaw/agents/developer/workspace/current-task.txt
+
+# Spawn the agent
 openclaw sessions_spawn \
-    --task "$TASK" \
+    --task "Work on the voice-agent project. Task: $TASK. 
+
+IMPORTANT CONTEXT:
+- All voice-agent files are in the current directory
+- Key files: server.js (backend), app.js (frontend), index.html (UI), dashboard.html (stats)
+- DO NOT access or modify .env files or credentials
+- DO NOT expose API keys in code
+- Test changes when possible
+- Provide complete solutions with explanations
+
+Current workspace files are available for editing." \
     --agentId developer \
     --model openrouter/pony-alpha \
-    --label "$LABEL"
+    --label "$LABEL" \
+    --timeout 300
 
 echo ""
 echo "✅ Developer agent spawned with label: $LABEL"
+echo "📁 Working in: /Users/obiwon/.openclaw/agents/developer/workspace/"
