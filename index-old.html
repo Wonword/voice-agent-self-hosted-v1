@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#0f0f23">
+    <title>Obiwon AI Tutor - Gemini Voice</title>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        display: ['Space Grotesk', 'sans-serif'],
+                    },
+                    colors: {
+                        primary: {
+                            50: '#f0f9ff', 100: '#e0f2fe', 200: '#bae6fd', 300: '#7dd3fc',
+                            400: '#38bdf8', 500: '#0ea5e9', 600: '#0284c7', 700: '#0369a1',
+                            800: '#075985', 900: '#0c4a6e',
+                        },
+                        dark: { 900: '#0a0a0f', 800: '#12121a', 700: '#1a1a2e', 600: '#252542' }
+                    },
+                    animation: {
+                        'pulse-glow': 'pulse-glow 2s ease-in-out infinite',
+                        'fade-in': 'fade-in 0.5s ease-out',
+                        'slide-up': 'slide-up 0.3s ease-out',
+                    },
+                    keyframes: {
+                        'pulse-glow': {
+                            '0%, 100%': { boxShadow: '0 0 20px rgba(14, 165, 233, 0.5)' },
+                            '50%': { boxShadow: '0 0 40px rgba(14, 165, 233, 0.8)' },
+                        },
+                        'fade-in': { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
+                        'slide-up': { '0%': { transform: 'translateY(20px)', opacity: '0' }, '100%': { transform: 'translateY(0)', opacity: '1' } },
+                    },
+                }
+            }
+        }
+    </script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #12121a; }
+        ::-webkit-scrollbar-thumb { background: #252542; border-radius: 3px; }
+        
+        .glass {
+            background: rgba(26, 26, 46, 0.8);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+        
+        .mic-button {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .mic-button.listening {
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+            animation: pulse-glow 2s ease-in-out infinite;
+        }
+        
+        .mic-button.idle {
+            background: linear-gradient(135deg, #0ea5e9, #0284c7);
+        }
+        
+        .mic-button:hover {
+            transform: scale(1.05);
+        }
+        
+        .mic-button:active {
+            transform: scale(0.95);
+        }
+        
+        /* Visualizer */
+        .visualizer {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 3px;
+            height: 60px;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 30px;
+            border: 1px solid rgba(14, 165, 233, 0.3);
+            min-width: 300px;
+        }
+        
+        .visualizer-bar {
+            width: 4px;
+            background: linear-gradient(180deg, #0ea5e9 0%, #8b5cf6 100%);
+            border-radius: 2px;
+            transition: height 0.05s ease;
+            height: 10px;
+        }
+        
+        .visualizer-bar.active {
+            background: linear-gradient(180deg, #10b981 0%, #059669 100%);
+        }
+        
+        /* Message styles */
+        .message-user {
+            background: linear-gradient(135deg, #0ea5e9, #0284c7);
+        }
+        
+        .message-bot {
+            background: rgba(37, 37, 66, 0.9);
+            border: 1px solid #3a3a5c;
+        }
+        
+        /* Typing indicator */
+        .typing-dot {
+            width: 8px;
+            height: 8px;
+            background: #87ceeb;
+            border-radius: 50%;
+            animation: typingBounce 1.4s infinite ease-in-out both;
+        }
+        .typing-dot:nth-child(1) { animation-delay: -0.32s; }
+        .typing-dot:nth-child(2) { animation-delay: -0.16s; }
+        @keyframes typingBounce {
+            0%, 80%, 100% { transform: scale(0.6); opacity: 0.5; }
+            40% { transform: scale(1); opacity: 1; }
+        }
+    </style>
+</head>
+<body class="bg-dark-900 text-white font-sans min-h-screen overflow-hidden flex flex-col">
+    
+    <!-- Header Section -->
+    <header class="text-center py-5 px-4 bg-gradient-to-b from-primary-500/10 to-transparent">
+        <!-- Avatar -->
+        <div class="relative mb-4 inline-block">
+            <div class="absolute inset-0 bg-gradient-to-br from-primary-500/30 to-purple-500/30 rounded-full blur-xl animate-pulse"></div>
+            <div class="relative w-28 h-28 rounded-full border-4 border-dark-700 overflow-hidden shadow-2xl" style="filter: drop-shadow(0 0 20px rgba(14, 165, 233, 0.5));">
+                <img src="/obiwan-avatar.jpg" alt="Obiwon" class="w-full h-full object-cover" onerror="this.style.display='none'; this.parentElement.innerHTML='🧙‍♂️'; this.parentElement.classList.add('flex', 'items-center', 'justify-center', 'text-5xl', 'bg-gradient-to-br', 'from-purple-500', 'to-pink-500');">
+            </div>
+            <div class="absolute -bottom-1 -right-1 w-6 h-6 bg-green-500 rounded-full border-3 border-dark-900"></div>
+        </div>
+        
+        <h1 class="font-display font-bold text-3xl md:text-4xl bg-gradient-to-r from-primary-400 to-purple-400 bg-clip-text text-transparent mb-1">Obiwon AI Tutor</h1>
+        <p class="text-gray-400 text-base">Applied AI for Business & Marketing</p>
+        <div class="inline-flex items-center gap-2 mt-3 px-4 py-2 bg-primary-500/20 rounded-full text-sm text-primary-400">
+            <span>⚡</span>
+            <span>Powered by Gemini AI + Native Voice</span>
+        </div>
+    </header>
+    
+    <!-- Voice Control Section -->
+    <div class="px-4 py-5 border-b border-dark-700 bg-dark-800/50">
+        <div class="max-w-xl mx-auto flex flex-col items-center gap-4">
+            <div class="text-primary-400 text-sm font-medium" id="statusText">Press and hold to speak with Obiwon</div>
+            
+            <!-- Voice Visualizer -->
+            <div class="visualizer" id="visualizer">
+                <!-- 20 bars generated by JS -->
+            </div>
+            
+            <!-- Mic Button -->
+            <button id="micBtn" class="mic-button idle w-20 h-20 md:w-24 md:h-24 rounded-full flex flex-col items-center justify-center text-white shadow-lg"
+                onmousedown="startRecording()" 
+                onmouseup="stopRecording()"
+                ontouchstart="startRecording()" 
+                ontouchend="stopRecording()">
+                <span class="text-3xl mb-1">🎙️</span>
+                <span class="text-xs uppercase tracking-wider">Hold</span>
+            </button>
+            
+            <p class="text-gray-500 text-xs">Hold to speak</p>
+            
+            <!-- Text Input Area -->
+            <div class="flex gap-2 w-full max-w-md">
+                <input type="text" id="textInput" placeholder="Or type your question here" class="flex-1 bg-dark-800 border border-dark-600 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-primary-500 transition-colors text-sm">
+                <button id="sendBtn" onclick="sendTextMessage()" class="bg-primary-600 hover:bg-primary-500 text-white px-5 py-3 rounded-xl transition-colors font-medium text-sm">
+                    Ask
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Error Message -->
+    <div id="errorMsg" class="hidden mx-4 mt-4 p-3 bg-red-500/20 border border-red-500/40 rounded-xl text-red-300 text-center text-sm"></div>
+    
+    <!-- Chat Section -->
+    <div id="chatContainer" class="flex-1 overflow-y-auto p-4 max-w-3xl mx-auto w-full">
+        <div class="text-center py-10 text-gray-500">
+            <div class="text-5xl mb-4">🎓</div>
+            <h3 class="text-white text-lg font-semibold mb-2">Welcome, I'm Obiwon</h3>
+            <p class="mb-4">Your AI tutor specializing in Applied AI for Business and Marketing.</p>
+            <p class="text-sm">Press and hold the microphone or type your question. I use <strong class="text-primary-400">Gemini AI</strong> for speech recognition and responses.</p>
+        </div>
+        
+        <div id="typingIndicator" class="hidden items-center gap-2 py-4 text-primary-400">
+            <span>🧙‍♂️ Obiwon is thinking</span>
+            <div class="flex gap-1">
+                <div class="typing-dot"></div>
+                <div class="typing-dot"></div>
+                <div class="typing-dot"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize visualizer bars
+        const visualizer = document.getElementById('visualizer');
+        const bars = [];
+        for (let i = 0; i < 20; i++) {
+            const bar = document.createElement('div');
+            bar.className = 'visualizer-bar';
+            bar.style.height = '10px';
+            visualizer.appendChild(bar);
+            bars.push(bar);
+        }
+        
+        // Audio recording
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let isRecording = false;
+        let audioContext = null;
+        let analyser = null;
+        let microphone = null;
+        let animationId = null;
+        let preferredVoice = null;
+        
+        // Load voices
+        function loadVoices() {
+            const voices = window.speechSynthesis.getVoices();
+            console.log('Available voices:', voices.map(v => v.name).join(', '));
+            
+            const maleVoiceNames = ['Daniel', 'Google UK English Male', 'Microsoft David', 'Microsoft James', 'Microsoft Mark', 'Fred', 'Alex', 'Google US English'];
+            
+            for (const name of maleVoiceNames) {
+                preferredVoice = voices.find(v => v.name.includes(name));
+                if (preferredVoice) break;
+            }
+            
+            if (!preferredVoice) {
+                preferredVoice = voices.find(v => v.lang.startsWith('en'));
+            }
+            
+            console.log('Selected voice:', preferredVoice?.name || 'Default');
+            return preferredVoice;
+        }
+        
+        if ('speechSynthesis' in window) {
+            window.speechSynthesis.getVoices();
+            window.speechSynthesis.onvoiceschanged = loadVoices;
+            loadVoices();
+            setTimeout(loadVoices, 1000);
+            setTimeout(loadVoices, 3000);
+        }
+        
+        async function startRecording() {
+            if (isRecording) return;
+            isRecording = true;
+            
+            const btn = document.getElementById('micBtn');
+            const statusText = document.getElementById('statusText');
+            
+            btn.classList.remove('idle');
+            btn.classList.add('listening');
+            statusText.textContent = '🎤 Recording... Speak now!';
+            
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 64;
+                microphone = audioContext.createMediaStreamSource(stream);
+                microphone.connect(analyser);
+                
+                startVisualizer();
+                
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+                
+                mediaRecorder.ondataavailable = (e) => {
+                    if (e.data.size > 0) audioChunks.push(e.data);
+                };
+                
+                mediaRecorder.start();
+                
+            } catch (err) {
+                console.error('Recording error:', err);
+                showError('Please allow microphone access.');
+                stopRecording();
+            }
+        }
+        
+        function stopRecording() {
+            if (!isRecording) return;
+            isRecording = false;
+            
+            const btn = document.getElementById('micBtn');
+            const statusText = document.getElementById('statusText');
+            
+            btn.classList.remove('listening');
+            btn.classList.add('idle');
+            statusText.textContent = '🔄 Processing with Gemini AI...';
+            
+            stopVisualizer();
+            
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+                
+                mediaRecorder.onstop = async () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    
+                    try {
+                        statusText.textContent = '🎤 Transcribing with Gemini...';
+                        const transcribeResponse = await fetch('/transcribe', {
+                            method: 'POST',
+                            body: audioBlob
+                        });
+                        
+                        const transcribeData = await transcribeResponse.json();
+                        
+                        if (transcribeData.transcript) {
+                            const userText = transcribeData.transcript;
+                            addMessage('user', userText);
+                            
+                            statusText.textContent = '🤖 Gemini is thinking...';
+                            document.getElementById('typingIndicator').classList.remove('hidden');
+                            document.getElementById('typingIndicator').classList.add('flex');
+                            
+                            const chatResponse = await fetch('/chat', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ message: userText })
+                            });
+                            
+                            const chatData = await chatResponse.json();
+                            document.getElementById('typingIndicator').classList.add('hidden');
+                            document.getElementById('typingIndicator').classList.remove('flex');
+                            
+                            if (chatData.response) {
+                                addMessage('obiwon', chatData.response);
+                                setTimeout(() => {
+                                    speakWithBrowserTTS(chatData.response);
+                                }, 500);
+                            }
+                        } else {
+                            statusText.textContent = '⚠️ No speech detected. Try again.';
+                            setTimeout(() => statusText.textContent = 'Press and hold to speak with Obiwon', 2000);
+                        }
+                    } catch (err) {
+                        console.error('Processing error:', err);
+                        showError('Error processing. Please try again.');
+                        document.getElementById('typingIndicator').classList.add('hidden');
+                        document.getElementById('typingIndicator').classList.remove('flex');
+                    }
+                };
+            }
+        }
+        
+        function startVisualizer() {
+            if (!analyser) return;
+            const dataArray = new Uint8Array(analyser.frequencyBinCount);
+            
+            function update() {
+                if (!isRecording) return;
+                analyser.getByteFrequencyData(dataArray);
+                for (let i = 0; i < bars.length; i++) {
+                    const value = dataArray[i] || 0;
+                    bars[i].style.height = Math.max(10, (value / 255) * 50) + 'px';
+                    bars[i].classList.add('active');
+                }
+                animationId = requestAnimationFrame(update);
+            }
+            update();
+        }
+        
+        function stopVisualizer() {
+            if (animationId) cancelAnimationFrame(animationId);
+            bars.forEach(bar => { bar.style.height = '10px'; bar.classList.remove('active'); });
+            if (audioContext) { audioContext.close(); audioContext = null; }
+        }
+        
+        let currentUtterance = null;
+        
+        function speakWithBrowserTTS(text) {
+            const statusText = document.getElementById('statusText');
+            
+            if (!('speechSynthesis' in window)) {
+                statusText.textContent = 'Voice not supported in this browser';
+                return;
+            }
+            
+            window.speechSynthesis.cancel();
+            
+            if (!preferredVoice) {
+                loadVoices();
+            }
+            
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.rate = 0.85;
+            utterance.pitch = 0.9;
+            utterance.volume = 1;
+            
+            const voices = window.speechSynthesis.getVoices();
+            const maleVoice = voices.find(v => 
+                v.name.includes('Daniel') || 
+                v.name.includes('Google UK English Male') ||
+                v.name.includes('Microsoft David') ||
+                v.name.includes('Fred') ||
+                v.name.includes('Alex') ||
+                (v.lang === 'en-GB' && !v.name.includes('Female'))
+            ) || voices.find(v => v.lang.startsWith('en'));
+            
+            if (maleVoice) {
+                utterance.voice = maleVoice;
+                console.log('Using voice:', maleVoice.name);
+            }
+            
+            currentUtterance = utterance;
+            
+            utterance.onstart = () => {
+                statusText.textContent = '🔊 Obiwon is speaking...';
+                console.log('Speech started');
+            };
+            
+            utterance.onend = () => {
+                statusText.textContent = 'Press and hold to speak with Obiwon';
+                currentUtterance = null;
+                console.log('Speech ended');
+            };
+            
+            utterance.onerror = (err) => {
+                console.error('TTS error:', err);
+                statusText.textContent = 'Press and hold to speak with Obiwon';
+                currentUtterance = null;
+            };
+            
+            setTimeout(() => {
+                window.speechSynthesis.speak(utterance);
+            }, 100);
+        }
+        
+        async function sendTextMessage() {
+            const input = document.getElementById('textInput');
+            const text = input.value.trim();
+            if (!text) return;
+            
+            input.value = '';
+            await askTopic(text);
+        }
+        
+        document.getElementById('textInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendTextMessage();
+            }
+        });
+        
+        async function askTopic(topic) {
+            addMessage('user', topic);
+            
+            const statusText = document.getElementById('statusText');
+            const typingIndicator = document.getElementById('typingIndicator');
+            
+            typingIndicator.classList.remove('hidden');
+            typingIndicator.classList.add('flex');
+            statusText.textContent = '🤖 Gemini is thinking...';
+            
+            try {
+                const chatResponse = await fetch('/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: topic })
+                });
+                
+                const chatData = await chatResponse.json();
+                typingIndicator.classList.add('hidden');
+                typingIndicator.classList.remove('flex');
+                
+                if (chatData.response) {
+                    addMessage('obiwon', chatData.response);
+                    setTimeout(() => {
+                        speakWithBrowserTTS(chatData.response);
+                    }, 500);
+                }
+            } catch (err) {
+                console.error('Error:', err);
+                showError('Error getting response.');
+                typingIndicator.classList.add('hidden');
+                typingIndicator.classList.remove('flex');
+            }
+        }
+        
+        function addMessage(sender, text) {
+            const container = document.getElementById('chatContainer');
+            const welcomeMsg = container.querySelector('.text-center');
+            if (welcomeMsg) welcomeMsg.remove();
+            
+            const div = document.createElement('div');
+            div.className = `mb-4 flex gap-3 animate-fade-in ${sender === 'user' ? 'flex-row-reverse' : ''}`;
+            const avatar = sender === 'user' ? '👤' : '🧙‍♂️';
+            const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            
+            const speakButton = sender === 'obiwon' ? 
+                `<button onclick="speakWithBrowserTTS('${escapeHtml(text).replace(/'/g, "\\'")}')" class="mt-2 text-xs bg-primary-500/20 hover:bg-primary-500/30 text-primary-400 px-3 py-1.5 rounded-full transition-colors">
+                    🔊 Speak
+                </button>` : '';
+            
+            div.innerHTML = `
+                <div class="w-10 h-10 rounded-full flex items-center justify-center text-lg flex-shrink-0 ${sender === 'user' ? 'bg-gradient-to-br from-primary-500 to-primary-700' : 'bg-gradient-to-br from-purple-500 to-pink-500'}">
+                    ${avatar}
+                </div>
+                <div class="max-w-[75%]">
+                    <div class="${sender === 'user' ? 'message-user rounded-2xl rounded-tr-none' : 'message-bot rounded-2xl rounded-tl-none'} p-4 text-sm leading-relaxed">
+                        ${escapeHtml(text)}
+                    </div>
+                    ${speakButton}
+                    <div class="text-xs text-gray-600 mt-1">${time}</div>
+                </div>
+            `;
+            
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+        }
+        
+        function showError(msg) {
+            const errorDiv = document.getElementById('errorMsg');
+            errorDiv.textContent = msg;
+            errorDiv.classList.remove('hidden');
+            setTimeout(() => errorDiv.classList.add('hidden'), 5000);
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>

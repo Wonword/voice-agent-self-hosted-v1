@@ -1,0 +1,14 @@
+{
+  "name": "voice-agent",
+  "version": "1.0.0",
+  "description": "Voice-enabled AI tutor using Gemini",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "node-fetch": "^2.7.0"
+  },
+  "keywords": ["voice", "ai", "tutor", "gemini", "education"],
+  "author": "Obiwon"
+}

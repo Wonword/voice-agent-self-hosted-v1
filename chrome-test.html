@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Chrome Audio Diagnostic - Obiwon</title>
+    <style>
+        body { font-family: -apple-system, sans-serif; padding: 40px; max-width: 700px; margin: 0 auto; line-height: 1.6; }
+        h1 { color: #333; }
+        .test-section { margin: 30px 0; padding: 20px; background: #f5f5f5; border-radius: 8px; }
+        button { padding: 15px 30px; font-size: 16px; cursor: pointer; margin: 10px 5px; border-radius: 6px; border: none; }
+        .primary { background: #4285f4; color: white; }
+        .success { background: #34a853; color: white; }
+        .error { background: #ea4335; color: white; }
+        #status { margin: 20px 0; padding: 15px; background: #e8f0fe; border-radius: 6px; min-height: 50px; }
+        #transcript { margin: 20px 0; padding: 20px; background: #e6f4ea; border-radius: 6px; min-height: 100px; font-size: 18px; }
+        .info { color: #666; font-size: 14px; margin-top: 10px; }
+        .visualizer { display: flex; gap: 2px; height: 60px; align-items: flex-end; justify-content: center; margin: 20px 0; }
+        .bar { width: 4px; background: #4285f4; border-radius: 2px; transition: height 0.1s; }
+    </style>
+</head>
+<body>
+    <h1>🎤 Chrome Audio Diagnostic</h1>
+    <p>This page tests your microphone and speech recognition in Chrome.</p>
+    
+    <div class="test-section">
+        <h2>Test 1: Browser Native Speech Recognition</h2>
+        <button class="primary" id="startNative">🎙️ Start Native Speech Recognition</button>
+        <button class="error" id="stopNative">⏹️ Stop</button>
+        <div class="visualizer" id="viz1"></div>
+        <div id="status1">Click "Start" and speak clearly...</div>
+        <div id="result1"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test 2: Gemini API Transcription</h2>
+        <button class="primary" id="startGemini">🎤 Record for Gemini</button>
+        <div class="visualizer" id="viz2"></div>
+        <div id="status2">Status: Ready</div>
+        <div id="result2"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Troubleshooting Chrome</h2>
+        <ol>
+            <li>Make sure you're on <strong>HTTPS</strong> (not HTTP)</li>
+            <li>Click the 🔒 icon in address bar → <strong>Site settings</strong> → Allow Microphone</li>
+            <li>Chrome needs a <strong>user click</strong> before accessing mic (security feature)</li>
+            <li>Try refreshing the page after allowing permissions</li>
+            <li>Check Mac System Preferences → Security & Privacy → Microphone → Chrome is checked</li>
+        </ol>
+    </div>
+
+    <script>
+        // Create visualizer bars
+        function createVisualizer(id) {
+            const container = document.getElementById(id);
+            for (let i = 0; i < 20; i++) {
+                const bar = document.createElement('div');
+                bar.className = 'bar';
+                bar.style.height = '5px';
+                container.appendChild(bar);
+            }
+            return container.querySelectorAll('.bar');
+        }
+        
+        const bars1 = createVisualizer('viz1');
+        const bars2 = createVisualizer('viz2');
+        
+        // Test 1: Native Web Speech API (Chrome built-in)
+        let nativeRecognizer = null;
+        
+        document.getElementById('startNative').onclick = () => {
+            if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+                document.getElementById('status1').textContent = '❌ Speech Recognition not supported in this browser';
+                return;
+            }
+            
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            nativeRecognizer = new SpeechRecognition();
+            nativeRecognizer.continuous = true;
+            nativeRecognizer.interimResults = true;
+            nativeRecognizer.lang = 'en-US';
+            
+            nativeRecognizer.onstart = () => {
+                document.getElementById('status1').textContent = '🎤 Listening... (speak now)';
+                animateVisualizer(bars1);
+            };
+            
+            nativeRecognizer.onresult = (event) => {
+                let finalTranscript = '';
+                let interimTranscript = '';
+                
+                for (let i = event.resultIndex; i < event.results.length; i++) {
+                    const transcript = event.results[i][0].transcript;
+                    if (event.results[i].isFinal) {
+                        finalTranscript += transcript;
+                    } else {
+                        interimTranscript += transcript;
+                    }
+                }
+                
+                document.getElementById('result1').innerHTML = 
+                    `<strong>Final:</strong> ${finalTranscript}<br><em>Interim: ${interimTranscript}</em>`;
+            };
+            
+            nativeRecognizer.onerror = (event) => {
+                document.getElementById('status1').textContent = '❌ Error: ' + event.error;
+                console.error('Speech recognition error:', event);
+            };
+            
+            nativeRecognizer.onend = () => {
+                document.getElementById('status1').textContent = '⏹️ Stopped';
+                stopVisualizer(bars1);
+            };
+            
+            nativeRecognizer.start();
+        };
+        
+        document.getElementById('stopNative').onclick = () => {
+            if (nativeRecognizer) {
+                nativeRecognizer.stop();
+            }
+        };
+        
+        // Test 2: Gemini API transcription
+        let mediaRecorder = null;
+        let audioChunks = [];
+        
+        document.getElementById('startGemini').onclick = async () => {
+            const btn = document.getElementById('startGemini');
+            const status = document.getElementById('status2');
+            
+            if (btn.textContent.includes('Record')) {
+                // Start recording
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ 
+                        audio: {
+                            echoCancellation: true,
+                            noiseSuppression: true,
+                            sampleRate: 48000,
+                            channelCount: 1
+                        }
+                    });
+                    
+                    mediaRecorder = new MediaRecorder(stream, {
+                        mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus') 
+                            ? 'audio/webm;codecs=opus' : 'audio/webm'
+                    });
+                    
+                    audioChunks = [];
+                    mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+                    mediaRecorder.start(100);
+                    
+                    btn.textContent = '⏹️ Stop & Send to Gemini';
+                    status.textContent = '🎤 Recording... (speak clearly)';
+                    animateVisualizer(bars2);
+                    
+                } catch (err) {
+                    status.textContent = '❌ Error: ' + err.message;
+                }
+                
+            } else {
+                // Stop and send
+                mediaRecorder.stop();
+                btn.textContent = '🎤 Record for Gemini';
+                status.textContent = '⏳ Sending to Gemini...';
+                stopVisualizer(bars2);
+                
+                mediaRecorder.onstop = async () => {
+                    const blob = new Blob(audioChunks, { type: 'audio/webm' });
+                    
+                    try {
+                        const res = await fetch('/transcribe', {
+                            method: 'POST',
+                            body: blob
+                        });
+                        const data = await res.json();
+                        
+                        if (data.transcript) {
+                            document.getElementById('result2').innerHTML = 
+                                `<strong>Gemini heard:</strong> "${data.transcript}"`;
+                            status.textContent = '✅ Transcribed!';
+                        } else {
+                            document.getElementById('result2').innerHTML = 
+                                '<em>No speech detected or transcription failed</em>';
+                            status.textContent = '⚠️ No speech detected';
+                        }
+                    } catch (err) {
+                        status.textContent = '❌ API Error: ' + err.message;
+                    }
+                };
+            }
+        };
+        
+        // Visualizer animation
+        let vizInterval = null;
+        function animateVisualizer(bars) {
+            let t = 0;
+            vizInterval = setInterval(() => {
+                t += 0.1;
+                bars.forEach((bar, i) => {
+                    const height = 20 + Math.sin(t + i * 0.3) * 15 + Math.random() * 10;
+                    bar.style.height = height + 'px';
+                });
+            }, 50);
+        }
+        
+        function stopVisualizer(bars) {
+            clearInterval(vizInterval);
+            bars.forEach(bar => bar.style.height = '5px');
+        }
+    </script>
+</body>
+</html>
