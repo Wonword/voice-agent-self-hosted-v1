@@ -155,70 +155,238 @@ const server = http.createServer((req, res) => {
     res.end('Not found');
 });
 
+// Constants for transcription
+const TRANSCRIPTION_TIMEOUT = 30000; // 30 seconds
+const MIN_AUDIO_SIZE = 1000; // 1KB minimum
+const MAX_AUDIO_SIZE = 10 * 1024 * 1024; // 10MB maximum
+const GEMINI_AUDIO_LIMIT = 100000; // ~100KB for Gemini API
+
+// Error response helper
+function sendErrorResponse(res, statusCode, errorType, message, details = null) {
+    stats.errors++;
+    const errorResponse = { 
+        error: errorType, 
+        message: message,
+        timestamp: new Date().toISOString()
+    };
+    if (details) errorResponse.details = details;
+    
+    res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(errorResponse));
+}
+
 async function handleGeminiTranscription(req, res) {
     const chunks = [];
+    let requestAborted = false;
     
-    req.on('data', chunk => chunks.push(chunk));
+    // Handle client disconnect
+    req.on('close', () => {
+        requestAborted = true;
+    });
+    
+    req.on('data', chunk => {
+        if (!requestAborted) chunks.push(chunk);
+    });
     
     req.on('end', async () => {
+        if (requestAborted) {
+            console.log(`[${new Date().toISOString()}] Transcription request aborted by client`);
+            return;
+        }
+        
         try {
             stats.totalRequests++;
             stats.voiceInputs++;
             
             const buffer = Buffer.concat(chunks);
             
-            // Check if audio was received
-            if (buffer.length < 1000) {
-                console.log(`[${new Date().toISOString()}] Audio too short: ${buffer.length} bytes`);
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ transcript: '' }));
+            // Validate audio buffer exists
+            if (!buffer || buffer.length === 0) {
+                console.log(`[${new Date().toISOString()}] No audio data received`);
+                sendErrorResponse(res, 400, 'INVALID_AUDIO', 'No audio data received');
                 return;
             }
             
-            // Check if audio is too large (Gemini has limits)
+            // Check minimum audio size
+            if (buffer.length < MIN_AUDIO_SIZE) {
+                console.log(`[${new Date().toISOString()}] Audio too short: ${buffer.length} bytes`);
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ transcript: '', message: 'Audio too short' }));
+                return;
+            }
+            
+            // Check maximum audio size
+            if (buffer.length > MAX_AUDIO_SIZE) {
+                console.log(`[${new Date().toISOString()}] Audio too large: ${buffer.length} bytes`);
+                sendErrorResponse(res, 413, 'AUDIO_TOO_LARGE', `Audio file exceeds maximum size of ${MAX_AUDIO_SIZE / 1024 / 1024}MB`);
+                return;
+            }
+            
+            // Check if audio is too large for Gemini API (truncate if needed)
             let audioBuffer = buffer;
-            if (buffer.length > 100000) { // ~100KB limit
-                console.log(`[${new Date().toISOString()}] Audio too large: ${buffer.length} bytes, truncating...`);
-                audioBuffer = buffer.slice(0, 100000);
+            if (buffer.length > GEMINI_AUDIO_LIMIT) {
+                console.log(`[${new Date().toISOString()}] Audio truncated: ${buffer.length} -> ${GEMINI_AUDIO_LIMIT} bytes`);
+                audioBuffer = buffer.slice(0, GEMINI_AUDIO_LIMIT);
+            }
+            
+            // Validate API key is configured
+            if (!GEMINI_API_KEY) {
+                console.error(`[${new Date().toISOString()}] GEMINI_API_KEY not configured`);
+                sendErrorResponse(res, 500, 'CONFIG_ERROR', 'Transcription service not properly configured');
+                return;
             }
             
             const base64Audio = audioBuffer.toString('base64');
+            
+            // Validate base64 conversion
+            if (!base64Audio || base64Audio.length === 0) {
+                console.error(`[${new Date().toISOString()}] Failed to encode audio to base64`);
+                sendErrorResponse(res, 500, 'ENCODING_ERROR', 'Failed to process audio data');
+                return;
+            }
             
             console.log(`[${new Date().toISOString()}] Transcribing audio (${audioBuffer.length} bytes)...`);
             
             stats.transcriptionCalls++;
             
-            // Call Gemini API for transcription with improved prompt
-            const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + GEMINI_API_KEY, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{
-                        parts: [
-                            {
-                                inlineData: {
-                                    mimeType: 'audio/webm',
-                                    data: base64Audio
-                                }
-                            },
-                            { text: 'Transcribe this English audio to text. Listen carefully and transcribe exactly what is spoken. If the audio is unclear or no speech is detected, respond with "[no speech detected]". Only return the spoken words, nothing else.' }
-                        ]
-                    }]
-                })
-            });
+            // Set up timeout using AbortController
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => {
+                controller.abort();
+                console.error(`[${new Date().toISOString()}] Transcription request timed out`);
+            }, TRANSCRIPTION_TIMEOUT);
             
-            const responseData = await response.json();
-            
-            // Check for errors
-            if (responseData.error) {
-                console.error('Gemini API error:', responseData.error);
-                stats.errors++;
-                res.writeHead(500, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: 'Transcription API error', details: responseData.error.message }));
+            let response;
+            try {
+                // Call Gemini API for transcription with improved prompt
+                response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + GEMINI_API_KEY, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{
+                            parts: [
+                                {
+                                    inlineData: {
+                                        mimeType: 'audio/webm',
+                                        data: base64Audio
+                                    }
+                                },
+                                { text: 'Transcribe this English audio to text. Listen carefully and transcribe exactly what is spoken. If the audio is unclear or no speech is detected, respond with "[no speech detected]". Only return the spoken words, nothing else.' }
+                            ]
+                        }]
+                    }),
+                    signal: controller.signal
+                });
+            } catch (fetchError) {
+                clearTimeout(timeoutId);
+                
+                if (fetchError.name === 'AbortError') {
+                    sendErrorResponse(res, 504, 'TIMEOUT', 'Transcription request timed out. Please try again.');
+                    return;
+                }
+                
+                console.error(`[${new Date().toISOString()}] Network error calling Gemini API:`, fetchError.message);
+                sendErrorResponse(res, 503, 'NETWORK_ERROR', 'Unable to connect to transcription service. Please check your network connection.');
                 return;
             }
             
-            let transcription = responseData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+            clearTimeout(timeoutId);
+            
+            // Handle HTTP errors
+            if (!response.ok) {
+                let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+                
+                // Parse specific error codes
+                if (response.status === 400) {
+                    errorMessage = 'Invalid request to transcription service';
+                } else if (response.status === 401) {
+                    errorMessage = 'Invalid API key. Please check your configuration.';
+                } else if (response.status === 403) {
+                    errorMessage = 'API access denied. Please verify your API key permissions.';
+                } else if (response.status === 429) {
+                    errorMessage = 'Rate limit exceeded. Please wait a moment and try again.';
+                } else if (response.status >= 500) {
+                    errorMessage = 'Transcription service temporarily unavailable. Please try again later.';
+                }
+                
+                console.error(`[${new Date().toISOString()}] Gemini API HTTP error:`, errorMessage);
+                sendErrorResponse(res, response.status, 'API_ERROR', errorMessage, { status: response.status });
+                return;
+            }
+            
+            let responseData;
+            try {
+                responseData = await response.json();
+            } catch (parseError) {
+                console.error(`[${new Date().toISOString()}] Failed to parse API response:`, parseError.message);
+                sendErrorResponse(res, 500, 'PARSE_ERROR', 'Failed to parse transcription service response');
+                return;
+            }
+            
+            // Check for API-level errors in response body
+            if (responseData.error) {
+                const apiError = responseData.error;
+                console.error(`[${new Date().toISOString()}] Gemini API error:`, apiError);
+                
+                let errorType = 'API_ERROR';
+                let statusCode = 500;
+                let message = apiError.message || 'Transcription service error';
+                
+                // Handle specific error codes
+                if (apiError.code) {
+                    switch (apiError.code) {
+                        case 400:
+                            errorType = 'INVALID_REQUEST';
+                            statusCode = 400;
+                            message = 'Invalid audio format or request parameters';
+                            break;
+                        case 401:
+                            errorType = 'INVALID_API_KEY';
+                            statusCode = 401;
+                            message = 'Invalid or expired API key';
+                            break;
+                        case 403:
+                            errorType = 'FORBIDDEN';
+                            statusCode = 403;
+                            message = 'API key does not have permission for this operation';
+                            break;
+                        case 429:
+                            errorType = 'RATE_LIMIT';
+                            statusCode = 429;
+                            message = 'Rate limit exceeded. Please wait before trying again.';
+                            break;
+                        case 500:
+                        case 502:
+                        case 503:
+                            errorType = 'SERVICE_UNAVAILABLE';
+                            statusCode = 503;
+                            message = 'Transcription service temporarily unavailable';
+                            break;
+                    }
+                }
+                
+                sendErrorResponse(res, statusCode, errorType, message, { code: apiError.code });
+                return;
+            }
+            
+            // Validate response structure
+            if (!responseData.candidates || !Array.isArray(responseData.candidates) || responseData.candidates.length === 0) {
+                console.error(`[${new Date().toISOString()}] Empty or invalid response from Gemini API`);
+                sendErrorResponse(res, 500, 'INVALID_RESPONSE', 'Transcription service returned an invalid response');
+                return;
+            }
+            
+            // Check for blocked content
+            const candidate = responseData.candidates[0];
+            if (candidate.finishReason && candidate.finishReason !== 'STOP') {
+                console.warn(`[${new Date().toISOString()}] Transcription stopped with reason:`, candidate.finishReason);
+                if (candidate.finishReason === 'SAFETY') {
+                    sendErrorResponse(res, 400, 'CONTENT_BLOCKED', 'Audio content could not be processed due to safety filters');
+                    return;
+                }
+            }
+            
+            let transcription = candidate.content?.parts?.[0]?.text || '';
             
             // Clean up transcription
             transcription = transcription.trim();
@@ -226,16 +394,20 @@ async function handleGeminiTranscription(req, res) {
                 transcription = '';
             }
             
-            console.log(`[${new Date().toISOString()}] Transcribed: "${transcription.substring(0, 100)}..."`);
+            console.log(`[${new Date().toISOString()}] Transcribed: "${transcription.substring(0, 100)}${transcription.length > 100 ? '...' : ''}"`);
             
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ transcript: transcription }));
+            res.end(JSON.stringify({ 
+                transcript: transcription,
+                success: true
+            }));
             
         } catch (error) {
-            console.error('Gemini transcription error:', error);
-            stats.errors++;
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: 'Transcription failed', details: error.message }));
+            console.error(`[${new Date().toISOString()}] Unexpected transcription error:`, error);
+            sendErrorResponse(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred during transcription', { 
+                message: error.message,
+                type: error.name
+            });
         }
     });
 }
