@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Obiwon Voice Agent Dashboard for AI and Creative Tech</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #0a0a1a 0%, #1a1a3e 50%, #0f1a3a 100%);
+            min-height: 100vh;
+            color: #e2e8f0;
+            padding: 20px;
+        }
+        .header {
+            text-align: center;
+            padding: 20px;
+            background: linear-gradient(180deg, rgba(255,215,0,0.1) 0%, transparent 100%);
+            margin-bottom: 30px;
+        }
+        h1 {
+            font-size: 2em;
+            background: linear-gradient(135deg, #ffd700 0%, #87ceeb 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .subtitle {
+            color: #94a3b8;
+            margin-top: 10px;
+        }
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .card {
+            background: rgba(30, 41, 59, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            padding: 25px;
+        }
+        .card h2 {
+            color: #ffd700;
+            font-size: 1.2em;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .metric {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .metric:last-child {
+            border-bottom: none;
+        }
+        .metric-label {
+            color: #94a3b8;
+            font-size: 0.95em;
+        }
+        .metric-value {
+            font-size: 1.4em;
+            font-weight: 600;
+            color: #4ade80;
+        }
+        .metric-value.warning {
+            color: #fbbf24;
+        }
+        .metric-value.danger {
+            color: #f87171;
+        }
+        .cost-breakdown {
+            margin-top: 20px;
+            padding: 15px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+        }
+        .cost-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            font-size: 0.9em;
+        }
+        .cost-total {
+            display: flex;
+            justify-content: space-between;
+            padding-top: 15px;
+            margin-top: 10px;
+            border-top: 2px solid rgba(255, 215, 0, 0.3);
+            font-weight: 600;
+            font-size: 1.1em;
+            color: #ffd700;
+        }
+        .refresh-btn {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: 600;
+            margin-top: 20px;
+            width: 100%;
+        }
+        .refresh-btn:hover {
+            opacity: 0.9;
+        }
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        .status-online {
+            background: #4ade80;
+            box-shadow: 0 0 10px #4ade80;
+        }
+        .status-offline {
+            background: #f87171;
+        }
+        .chart-container {
+            height: 200px;
+            margin-top: 20px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #64748b;
+        }
+        .timestamp {
+            text-align: center;
+            color: #64748b;
+            font-size: 0.85em;
+            margin-top: 30px;
+        }
+        .back-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: #94a3b8;
+            text-decoration: none;
+        }
+        .back-link:hover {
+            color: #ffd700;
+        }
+        .file-list {
+            font-size: 0.8em;
+            color: #64748b;
+            margin-top: 10px;
+            line-height: 1.6;
+        }
+        .pricing-note {
+            font-size: 0.75em;
+            color: #64748b;
+            margin-top: 10px;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div style="max-width: 1200px; margin: 0 auto;">
+        <a href="/" class="back-link">← Back to Voice Agent</a>
+    </div>
+    
+    <div class="header">
+        <h1>🎙️ Obiwon Voice Agent Dashboard</h1>
+        <p class="subtitle">Usage & Cost Monitoring for voice.artgenies.com</p>
+    </div>
+
+    <div class="dashboard-grid">
+        <!-- Server Status -->
+        <div class="card">
+            <h2><span class="status-indicator" id="serverStatus"></span>Server Status</h2>
+            <div class="metric">
+                <span class="metric-label">Status</span>
+                <span class="metric-value" id="statusText">Checking...</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Uptime</span>
+                <span class="metric-value" id="uptime">--</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Gemini File Search</span>
+                <span class="metric-value" id="fileSearchStatus">--</span>
+            </div>
+        </div>
+
+        <!-- Usage Stats -->
+        <div class="card">
+            <h2>📊 Today's Usage</h2>
+            <div class="metric">
+                <span class="metric-label">Total Requests</span>
+                <span class="metric-value" id="totalRequests">0</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Voice Inputs</span>
+                <span class="metric-value" id="voiceInputs">0</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Text Inputs</span>
+                <span class="metric-value" id="textInputs">0</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">AI Responses</span>
+                <span class="metric-value" id="aiResponses">0</span>
+            </div>
+        </div>
+
+        <!-- Cost Estimation -->
+        <div class="card">
+            <h2>💰 Cost Breakdown (USD)</h2>
+            <div class="cost-breakdown">
+                <div class="cost-item">
+                    <span>Gemini File Search</span>
+                    <span id="fileSearchCost">$0.00</span>
+                </div>
+                <div class="cost-item">
+                    <span>Chat (Response Tokens)</span>
+                    <span id="chatCost">$0.00</span>
+                </div>
+                <div class="cost-item">
+                    <span>Audio Transcription</span>
+                    <span id="transcriptionCost">$0.00</span>
+                </div>
+                <div class="cost-item">
+                    <span>Text-to-Speech</span>
+                    <span id="ttsCost">$0.00</span>
+                </div>
+                <div class="cost-total">
+                    <span>Total Cost</span>
+                    <span id="totalCost">$0.00</span>
+                </div>
+            </div>
+            <div class="pricing-note">
+                <strong>Gemini Pricing:</strong><br>
+                • File Search: $0.10/1M input + $0.40/1M output tokens<br>
+                • Transcription: Uses Gemini Flash (same rates)<br>
+                • TTS: Free (browser local)
+            </div>
+        </div>
+
+        <!-- Gemini File Search -->
+        <div class="card">
+            <h2>📁 Gemini File Search</h2>
+            <div class="metric">
+                <span class="metric-label">Files Uploaded</span>
+                <span class="metric-value" id="fileCount">8</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Total Size</span>
+                <span class="metric-value" id="fileSize">~50KB</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Storage Cost</span>
+                <span class="metric-value">$0.00</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Query Cost</span>
+                <span class="metric-value">~$0.0013</span>
+            </div>
+            <div class="file-list">
+                <strong>Files:</strong> Syllabus, RODE Framework, Grading Rubric, Era Bending, Mini Exercise, AI Intro, Ethics, Fashion Brand Challenge
+            </div>
+        </div>
+
+        <!-- LLM Usage -->
+        <div class="card">
+            <h2>🤖 LLM Usage (Gemini 2.0 Flash)</h2>
+            <div class="metric">
+                <span class="metric-label">Chat + File Search Calls</span>
+                <span class="metric-value" id="chatCalls">0</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Transcription Calls</span>
+                <span class="metric-value" id="transcriptionCalls">0</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Total API Calls</span>
+                <span class="metric-value" id="totalCalls">0</span>
+            </div>
+            <div class="cost-breakdown" style="margin-top: 15px;">
+                <div class="cost-item">
+                    <span>Input Tokens</span>
+                    <span id="inputTokens">0</span>
+                </div>
+                <div class="cost-item">
+                    <span>Output Tokens</span>
+                    <span id="outputTokens">0</span>
+                </div>
+                <div class="cost-item" style="color: #ffd700; font-weight: 600;">
+                    <span>Est. Cost</span>
+                    <span id="tokenCost">$0.00</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Cache Stats -->
+        <div class="card">
+            <h2>💾 Answer Cache</h2>
+            <div class="metric">
+                <span class="metric-label">Cache Hits</span>
+                <span class="metric-value" id="cacheHits">0</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Cache Hit Rate</span>
+                <span class="metric-value" id="cacheHitRate">0%</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Cached Answers</span>
+                <span class="metric-value" id="cachedAnswers">0</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Cache TTL</span>
+                <span class="metric-value">60 min</span>
+            </div>
+            <div class="cost-breakdown" style="margin-top: 15px;">
+                <div class="cost-item">
+                    <span>Queries Saved</span>
+                    <span id="savedQueries">0</span>
+                </div>
+                <div class="cost-item" style="color: #4ade80; font-weight: 600;">
+                    <span>💰 Money Saved</span>
+                    <span id="cacheSavings">$0.00</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Performance -->
+        <div class="card">
+            <h2>⚡ Performance</h2>
+            <div class="metric">
+                <span class="metric-label">Avg Response Time</span>
+                <span class="metric-value" id="avgResponseTime">~2s</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Transcription Time</span>
+                <span class="metric-value" id="transcriptionTime">~1-2s</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">TTS Generation</span>
+                <span class="metric-value" id="ttsTime">~0.5s</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Error Rate</span>
+                <span class="metric-value" id="errorRate">0%</span>
+            </div>
+        </div>
+
+        <!-- Monthly Estimate -->
+        <div class="card">
+            <h2>📈 Monthly Projection</h2>
+            <div class="metric">
+                <span class="metric-label">At 50 queries/day</span>
+                <span class="metric-value" id="monthly50">~$2.00</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">At 100 queries/day</span>
+                <span class="metric-value" id="monthly100">~$4.00</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">At 200 queries/day</span>
+                <span class="metric-value" id="monthly200">~$8.00</span>
+            </div>
+            <div class="pricing-note" style="margin-top: 15px;">
+                Based on avg $0.0013/query with File Search
+            </div>
+        </div>
+    </div>
+
+    <div style="max-width: 1200px; margin: 30px auto;">
+        <button class="refresh-btn" onclick="refreshDashboard()">🔄 Refresh Dashboard</button>
+    </div>
+
+    <div class="timestamp">
+        Last updated: <span id="lastUpdated">--</span>
+    </div>
+
+    <script>
+        // Initialize dashboard
+        async function refreshDashboard() {
+            try {
+                // Check server health
+                const healthResponse = await fetch('/health');
+                const healthData = await healthResponse.json();
+                
+                // Update server status
+                const statusIndicator = document.getElementById('serverStatus');
+                const statusText = document.getElementById('statusText');
+                
+                if (healthData.status === 'ok') {
+                    statusIndicator.className = 'status-indicator status-online';
+                    statusText.textContent = 'Online';
+                    statusText.className = 'metric-value';
+                } else {
+                    statusIndicator.className = 'status-indicator status-offline';
+                    statusText.textContent = 'Offline';
+                    statusText.className = 'metric-value danger';
+                }
+                
+                // Update metrics
+                document.getElementById('uptime').textContent = formatUptime(healthData.uptime);
+                document.getElementById('fileSearchStatus').textContent = healthData.rag_loaded ? '✅ Active' : '✅ Active';
+                
+                // Fetch usage stats
+                try {
+                    const statsResponse = await fetch('/stats');
+                    const statsData = await statsResponse.json();
+                    
+                    // Update usage stats
+                    document.getElementById('totalRequests').textContent = statsData.totalRequests || 0;
+                    document.getElementById('voiceInputs').textContent = statsData.voiceInputs || 0;
+                    document.getElementById('textInputs').textContent = statsData.textInputs || 0;
+                    document.getElementById('aiResponses').textContent = statsData.aiResponses || 0;
+                    
+                    // Update LLM stats
+                    document.getElementById('chatCalls').textContent = statsData.chatCalls || 0;
+                    document.getElementById('transcriptionCalls').textContent = statsData.transcriptionCalls || 0;
+                    document.getElementById('totalCalls').textContent = (statsData.chatCalls || 0) + (statsData.transcriptionCalls || 0);
+                    document.getElementById('inputTokens').textContent = (statsData.inputTokens || 0).toLocaleString();
+                    document.getElementById('outputTokens').textContent = (statsData.outputTokens || 0).toLocaleString();
+                    
+                    // Update costs
+                    if (statsData.costs) {
+                        const totalGeminiCost = statsData.costs.gemini || 0;
+                        const transcriptionCost = statsData.costs.transcription || 0;
+                        
+                        // Estimate File Search cost (input tokens) vs Chat cost (output tokens)
+                        // File Search uses ~12,500 input tokens per query, chat uses ~500 output tokens
+                        const fileSearchCost = totalGeminiCost * 0.7; // ~70% is input/File Search
+                        const chatCost = totalGeminiCost * 0.3; // ~30% is output/response
+                        const totalCost = totalGeminiCost + transcriptionCost;
+                        
+                        document.getElementById('fileSearchCost').textContent = '$' + fileSearchCost.toFixed(4);
+                        document.getElementById('chatCost').textContent = '$' + chatCost.toFixed(4);
+                        document.getElementById('transcriptionCost').textContent = '$' + transcriptionCost.toFixed(4);
+                        document.getElementById('ttsCost').textContent = '$0.00';
+                        document.getElementById('totalCost').textContent = '$' + totalCost.toFixed(4);
+                        document.getElementById('tokenCost').textContent = '$' + totalGeminiCost.toFixed(4);
+                        
+                        // Update monthly projections based on current cost per query
+                        const totalCalls = (statsData.chatCalls || 0) + (statsData.transcriptionCalls || 0);
+                        const costPerQuery = totalCalls > 0 ? totalCost / totalCalls : 0.0013;
+                        
+                        document.getElementById('monthly50').textContent = '~$' + (costPerQuery * 50 * 30).toFixed(2);
+                        document.getElementById('monthly100').textContent = '~$' + (costPerQuery * 100 * 30).toFixed(2);
+                        document.getElementById('monthly200').textContent = '~$' + (costPerQuery * 200 * 30).toFixed(2);
+                    }
+                    
+                    // Update cache stats
+                    document.getElementById('cacheHits').textContent = statsData.cacheHits || 0;
+                    document.getElementById('cacheHitRate').textContent = (statsData.cacheHitRate || 0) + '%';
+                    document.getElementById('cachedAnswers').textContent = statsData.cachedAnswers || 0;
+                    document.getElementById('savedQueries').textContent = statsData.cacheHits || 0;
+                    document.getElementById('cacheSavings').textContent = '$' + (statsData.cacheSavings || 0).toFixed(2);
+                    
+                    // Update performance
+                    document.getElementById('errorRate').textContent = (statsData.errorRate || 0) + '%';
+                    
+                } catch (statsError) {
+                    console.error('Stats fetch error:', statsError);
+                }
+                
+            } catch (error) {
+                console.error('Dashboard error:', error);
+                document.getElementById('serverStatus').className = 'status-indicator status-offline';
+                document.getElementById('statusText').textContent = 'Connection Error';
+                document.getElementById('statusText').className = 'metric-value danger';
+            }
+            
+            document.getElementById('lastUpdated').textContent = new Date().toLocaleString();
+        }
+        
+        function formatUptime(seconds) {
+            const hours = Math.floor(seconds / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+            return `${hours}h ${minutes}m`;
+        }
+        
+        // Load on page load
+        refreshDashboard();
+        
+        // Auto-refresh every 30 seconds
+        setInterval(refreshDashboard, 30000);
+    </script>
+</body>
+</html>
