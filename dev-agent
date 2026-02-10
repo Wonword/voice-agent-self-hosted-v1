@@ -1,67 +1,63 @@
 #!/bin/bash
-# Shortcut to spawn developer agent with Pony Alpha
-# Usage: dev-agent "Your coding task here"
+# Developer Agent Launcher for voice.artgenies.com
+# This script shows task info - then you tell Obiwon to spawn it
 
 if [ -z "$1" ]; then
-    echo "Usage: dev-agent \"Your coding task description\""
-    echo ""
-    echo "Examples:"
-    echo '  dev-agent "Add error handling to server.js voice transcription"'
-    echo '  dev-agent "Update dashboard.html with new metrics"'
-    echo '  dev-agent "Create a new endpoint in server.js for stats"'
-    echo '  dev-agent "Debug why voice processing fails in Chrome"'
-    echo ""
-    echo "Workspace: /Users/obiwon/.openclaw/agents/developer/workspace/"
-    echo "Project: voice.artgenies.com"
-    echo ""
-    echo "Available tools:"
-    echo "  - File operations (read, write, edit)"
-    echo "  - Shell execution (exec)"
-    echo "  - Web fetching (web_fetch)"
-    echo "  - Process management"
-    echo ""
-    echo "Key files:"
-    echo "  - server.js - Node.js backend"
-    echo "  - app.js - Frontend voice handling"
-    echo "  - index.html - Main UI"
-    echo "  - dashboard.html - Stats dashboard"
-    exit 1
+    cat << 'EOF'
+🚀 DEVELOPER AGENT - voice.artgenies.com
+
+USAGE:
+  dev-agent "Your coding task here"
+
+EXAMPLES:
+  dev-agent "Add error logging to server.js"
+  dev-agent "Update dashboard with cache hit rate chart"
+  dev-agent "Create a /stats API endpoint for daily usage"
+  dev-agent "Fix the voice recording timeout issue"
+
+WORKSPACE:
+  /Users/obiwon/.openclaw/agents/developer/workspace/
+
+KEY FILES:
+  📄 server.js       - Node.js backend (port 3003)
+  📄 app.js          - Frontend voice handling
+  📄 index.html      - Main UI (glassmorphism)
+  📄 dashboard.html  - Stats & cost tracking
+  📄 package.json    - Dependencies
+
+MODEL:
+  🧠 openrouter/pony-alpha (200K context, FREE)
+  ⚠️  All prompts logged by OpenRouter (don't use for secrets)
+
+HOW TO USE:
+  1. Type: dev-agent "your task description"
+  2. Copy the generated task
+  3. Tell Obiwon: "Spawn developer agent with this task"
+
+The developer agent will:
+  ✅ Work in the workspace directory
+  ✅ Have access to all voice-agent files
+  ✅ Write code following existing patterns
+  ✅ Test changes when possible
+  ✅ Report results back to you
+
+EOF
+    exit 0
 fi
 
 TASK="$1"
 LABEL="dev-$(date +%s)"
 
-echo "🚀 Spawning Developer Agent (Pony Alpha)..."
+echo "==================================================================="
+echo "🚀 DEVELOPER AGENT TASK"
+echo "==================================================================="
+echo ""
 echo "Task: $TASK"
-echo "Workspace: /Users/obiwon/.openclaw/agents/developer/workspace/"
-echo "Project: voice.artgenies.com"
+echo "Label: $LABEL"
+echo "Model: openrouter/pony-alpha"
 echo ""
-
-# Create a task file for the agent
-echo "TASK: $TASK" > /Users/obiwon/.openclaw/agents/developer/workspace/current-task.txt
-echo "TIMESTAMP: $(date)" >> /Users/obiwon/.openclaw/agents/developer/workspace/current-task.txt
-echo "" >> /Users/obiwon/.openclaw/agents/developer/workspace/current-task.txt
-echo "WORKSPACE FILES:" >> /Users/obiwon/.openclaw/agents/developer/workspace/current-task.txt
-ls -la /Users/obiwon/.openclaw/agents/developer/workspace/ >> /Users/obiwon/.openclaw/agents/developer/workspace/current-task.txt
-
-# Spawn the agent
-openclaw sessions_spawn \
-    --task "Work on the voice-agent project. Task: $TASK. 
-
-IMPORTANT CONTEXT:
-- All voice-agent files are in the current directory
-- Key files: server.js (backend), app.js (frontend), index.html (UI), dashboard.html (stats)
-- DO NOT access or modify .env files or credentials
-- DO NOT expose API keys in code
-- Test changes when possible
-- Provide complete solutions with explanations
-
-Current workspace files are available for editing." \
-    --agentId developer \
-    --model openrouter/pony-alpha \
-    --label "$LABEL" \
-    --timeout 300
-
+echo "Tell Obiwon to run:"
 echo ""
-echo "✅ Developer agent spawned with label: $LABEL"
-echo "📁 Working in: /Users/obiwon/.openclaw/agents/developer/workspace/"
+echo "sessions_spawn --task 'You are a specialist developer working on voice.artgenies.com. TASK: $TASK. Work in /Users/obiwon/.openclaw/agents/developer/workspace/ with files server.js, app.js, index.html, dashboard.html. Follow existing patterns, write clean code, test changes, do NOT access .env files or expose secrets.' --model openrouter/pony-alpha --label $LABEL"
+echo ""
+echo "==================================================================="

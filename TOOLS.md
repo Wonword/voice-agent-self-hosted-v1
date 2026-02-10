@@ -1,114 +1,141 @@
-# Developer Agent Tools & Skills
+# Developer Agent - Voice Agent Project
 
-## Project: voice.artgenies.com
+## Quick Reference
 
-**Location:** `/Users/obiwon/.openclaw/agents/developer/workspace/`
+**Project:** voice.artgenies.com  
+**Location:** `/Users/obiwon/.openclaw/agents/developer/workspace/`  
+**Model:** Pony Alpha (200K context, free, logged)  
 
-**Description:** Voice-enabled AI tutor for ESMOD Creative Tech class
-
-## Key Files
+## Architecture
 
 ### Backend (Node.js)
-- **server.js** - Main server with Gemini API integration
-  - Port: 3003
-  - Endpoints: /chat, /chat-voice, /transcribe, /dashboard, /stats, /health
-  - Features: voice transcription, chat, caching, cost tracking
-  
-- **package.json** - Dependencies (express, dotenv, etc.)
+```
+server.js          - Main Express server (port 3003)
+├── /chat          - Text chat endpoint
+├── /chat-voice    - Voice chat endpoint  
+├── /transcribe    - Audio transcription
+├── /dashboard     - Dashboard HTML
+├── /stats         - Usage statistics
+└── /health        - Health check
+```
 
 ### Frontend
-- **index.html** - Main UI with glassmorphism design
-- **app.js** - Voice handling, Web Speech API, TTS
-- **dashboard.html** - Cost tracking dashboard
-- **Obiwon-portrait-wise.jpeg** - Avatar image
+```
+index.html         - Main UI (glassmorphism design)
+app.js             - Voice handling, Web Speech API
+dashboard.html     - Cost tracking & metrics
+Obiwon-portrait-wise.jpeg - Avatar image
+```
 
-### Documentation
-- **README.md** - Project documentation
-- **SKILL.md** - OpenClaw skill documentation
-- **TEMPLATE.md** - Reuse template for other classes
-
-### Legacy/Backup
-- **app-old.js**, **index-old.html** - Previous versions
-- **server-rag.js**, **server-file-search.js** - Alternative implementations
-
-## Available Tools
-
-### File Operations
-- **read** - Read file contents (text, images)
-- **write** - Create or overwrite files
-- **edit** - Make precise edits to files
-
-### Execution
-- **exec** - Run shell commands
-- **process** - Manage background processes
-
-### Web & Search
-- **web_fetch** - Fetch content from URLs
-- **web_search** - Search the web (via Exa skill)
-
-### Development
-- **browser** - Browser automation for testing
-- **canvas** - UI testing and screenshots
-
-## Available Skills
-
-### document-creator
-Create Excel spreadsheets and Word documents:
-- Grade sheets, attendance trackers
-- Course schedules
-- Lesson plans, syllabi
-
-### exa-search
-Web search using Exa AI:
-- Semantic content discovery
-- Research and documentation
-- $0.005 per search
-
-### qmd
-Local hybrid search for markdown notes:
-- Search notes and docs
-- Find related content
-- Vector + BM25 search
-
-## Capabilities
-
-- Write code in any language (JavaScript, Python, etc.)
-- Build frontend components (React, Vue, HTML/CSS)
-- Create scripts and automation
-- Debug existing code
-- Generate documentation
-- Search web for solutions
-- Create structured documents
-- Test voice agent functionality
-
-## Constraints
-
-- Do NOT access API keys or credentials
-- Do NOT expose secrets in code
-- Do NOT modify .env files
-- Do NOT change credential handling
-- Work within the workspace directory
-- Clean up temporary files after use
-- Test changes when possible
+### Key Technologies
+- **AI:** Gemini 2.0 Flash (chat + transcription)
+- **TTS:** Browser TTS + Kokoro TTS (local)
+- **STT:** Web Speech API (browser) + Gemini (fallback)
+- **Design:** Glassmorphism CSS, Tailwind-like styling
 
 ## Common Tasks
 
-1. **Add feature to server.js**
-   - Check existing endpoints
-   - Follow error handling patterns
-   - Test with curl or browser
+### Add API Endpoint
+1. Check existing endpoints in server.js
+2. Add route handler
+3. Test with curl
 
-2. **Update dashboard.html**
-   - Maintain glassmorphism design
-   - Add new metrics/cards
-   - Update JavaScript for new data
+### Update Dashboard
+1. Edit dashboard.html
+2. Maintain glassmorphism design
+3. Update JavaScript for new data
 
-3. **Fix frontend issues**
-   - Check app.js for voice handling
-   - Test in Brave browser (Chrome has issues)
-   - Verify Web Speech API compatibility
+### Fix Voice Issues
+1. Check server logs
+2. Verify API key status
+3. Test in Brave (Chrome has issues)
 
-4. **Debug voice processing**
-   - Check server logs
-   - Verify API key status
-   - Test transcription endpoint
+### Frontend Changes
+1. Edit index.html or app.js
+2. Test voice recording
+3. Verify TTS works
+
+## File Structure
+
+```
+workspace/
+├── server.js              # Main backend
+├── app.js                 # Frontend logic
+├── index.html             # Main page
+├── dashboard.html         # Stats dashboard
+├── package.json           # Dependencies
+├── server.log             # Runtime logs
+├── node_modules/          # NPM packages
+├── README.md              # Documentation
+├── SKILL.md               # OpenClaw skill docs
+├── TEMPLATE.md            # Reuse template
+└── [backup files]         # Old versions
+```
+
+## Security Rules
+
+❌ **NEVER:**
+- Access .env files
+- Expose API keys in code
+- Log sensitive credentials
+- Share token files
+
+✅ **ALWAYS:**
+- Use environment variables
+- Keep secrets out of git
+- Test error handling
+- Clean up temp files
+
+## Testing
+
+### Test Voice
+```bash
+# Start server
+cd /Users/obiwon/.openclaw/agents/developer/workspace
+node server.js
+
+# Check health
+curl http://localhost:3003/health
+
+# Test chat
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"message":"Hello"}' \
+  http://localhost:3003/chat
+```
+
+### Test in Browser
+1. Open https://voice.artgenies.com
+2. Use Brave browser (Chrome has permission issues)
+3. Allow microphone access
+4. Test voice recording
+
+## Costs
+
+- **Gemini API:** ~$0.0013 per query
+- **TTS (Kokoro):** $0 (local)
+- **STT (Web Speech):** $0 (browser)
+- **Exa Search:** $0.005 per search
+
+## Useful Commands
+
+```bash
+# Check server status
+curl http://localhost:3003/health
+
+# View logs
+tail -f server.log
+
+# Restart server
+pkill -f "node server.js"
+node server.js
+
+# Check disk usage
+du -sh .
+```
+
+## Documentation
+
+- Main README: `/workspace/README.md`
+- Skill Docs: `/workspace/SKILL.md`
+- Template: `/workspace/TEMPLATE.md`
+- This file: `/agents/developer/TOOLS.md`
