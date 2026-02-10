@@ -1,0 +1,38 @@
+#!/bin/bash
+# Shortcut to spawn developer agent with Pony Alpha
+# Usage: dev-agent "Your coding task here"
+
+if [ -z "$1" ]; then
+    echo "Usage: dev-agent \"Your coding task description\""
+    echo ""
+    echo "Examples:"
+    echo '  dev-agent "Create a Python script to parse JSON files"'
+    echo '  dev-agent "Build a React component for a todo list"'
+    echo '  dev-agent "Debug why my API call is failing"'
+    echo ""
+    echo "Available tools:"
+    echo "  - File operations (read, write, edit)"
+    echo "  - Shell execution (exec)"
+    echo "  - Web fetching (web_fetch)"
+    echo "  - Skills: document-creator, exa-search, qmd"
+    exit 1
+fi
+
+TASK="$1"
+LABEL="dev-$(date +%s)"
+
+echo "🚀 Spawning Developer Agent (Pony Alpha)..."
+echo "Task: $TASK"
+echo "Tools: read, write, edit, exec, web_fetch"
+echo "Skills: document-creator, exa-search, qmd"
+echo ""
+
+# Use openclaw CLI to spawn with proper agent configuration
+openclaw sessions_spawn \
+    --task "$TASK" \
+    --agentId developer \
+    --model openrouter/pony-alpha \
+    --label "$LABEL"
+
+echo ""
+echo "✅ Developer agent spawned with label: $LABEL"
