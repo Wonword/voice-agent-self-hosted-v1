@@ -8,7 +8,7 @@ metadata:
         "emoji": "🎙️",
         "requires": { 
           "env": ["GEMINI_API_KEY"], 
-          "bins": ["node", "python3"],
+          "bins": ["node", "python3", "ffmpeg"],
           "python_packages": ["kokoro-onnx", "openai-whisper"]
         },
         "install":
@@ -36,14 +36,16 @@ A complete voice-enabled AI tutoring system for ESMOD Creative Tech course.
 ## ✨ Features
 
 ### 🎤 Voice Input
-- **Web Speech API** (Chrome/Brave) - Fast, browser-native
+- **Web Speech API** (Chrome/Brave/Safari) - Fast, browser-native
 - **Whisper** (Local fallback) - Accurate, runs on your Mac
+- **Gemini Transcription** - Cloud-based with retry logic
 - **Text input** - Always works in all browsers
 
 ### 🗣️ Voice Output
-- **Kokoro TTS** - High-quality local text-to-speech
-- **Obi-Wan voice** - British male, wise and calm
-- **Speak button** - Replay any response
+- **Browser Speech Synthesis** - Cross-platform TTS
+- **Voice Selection** - Choose your preferred voice in Settings
+- **Daniel voice** - British male, wise and calm (when available)
+- **Pitch adjustment** - Auto-adjusts for male-sounding output
 
 ### 🧠 AI Intelligence
 - **Gemini 2.0 Flash** - Smart responses
@@ -64,10 +66,10 @@ A complete voice-enabled AI tutoring system for ESMOD Creative Tech course.
 ```bash
 # Start server
 cd /Users/obiwon/.openclaw/workspace/skills/voice-agent
-node server-file-search.js
+node server.js
 
 # Or with logging
-node server-file-search.js > /tmp/voice-server.log 2>&1 &
+node server.js > /tmp/voice-server.log 2>&1 &
 
 # Access
 # Local: http://localhost:3003
@@ -105,7 +107,7 @@ node server-file-search.js > /tmp/voice-server.log 2>&1 &
 ### What's FREE ($0)
 | Component | Why Free |
 |-----------|----------|
-| Kokoro TTS | Runs locally on your Mac |
+| Browser TTS | Built-in speech synthesis |
 | Web Speech API | Browser built-in |
 | Whisper | Local transcription |
 | Answer caching | Saves repeated API calls |
@@ -113,7 +115,7 @@ node server-file-search.js > /tmp/voice-server.log 2>&1 &
 
 ### Cost Savings Features
 - **Answer cache** - 60min TTL, saves ~$0.0013 per cached query
-- **Local processing** - TTS/STT runs on your machine
+- **Local processing** - Whisper runs on your machine
 - **Smart fallback** - Text RAG if File Search fails
 
 **Monthly estimate:** 100 queries/day × 30 days = **~$4/month**
@@ -122,13 +124,12 @@ node server-file-search.js > /tmp/voice-server.log 2>&1 &
 
 ## 🎯 Architecture
 
-### Server (`server-file-search.js`)
+### Server (`server.js`)
 ```
 HTTP Server
 ├── / (root) - Serves HTML interface
-├── /transcribe - Whisper transcription (local)
+├── /transcribe - Gemini transcription with Whisper fallback
 ├── /chat - Gemini File Search RAG
-├── /speak - Kokoro TTS (local)
 ├── /health - Server status
 ├── /stats - Usage & cost metrics
 └── /dashboard - Cost monitoring UI
@@ -151,17 +152,19 @@ const cached = getCachedAnswer(question);
 if (cached) return cached; // $0 cost!
 ```
 
-#### 3. Kokoro TTS
+#### 3. Browser TTS
 ```javascript
-// High-quality local voice synthesis
-// British male voice (Obi-Wan style)
-const audio = await kokoroTTS(text);
+// Cross-platform speech synthesis
+// Auto-selects male voice when available
+const utterance = new SpeechSynthesisUtterance(text);
+utterance.voice = getBestMaleVoice();
 ```
 
 #### 4. Voice Recognition
 ```javascript
-// Primary: Web Speech API (fast)
-// Fallback: Whisper (accurate)
+// Primary: Web Speech API (fast, cross-browser)
+// Fallback: Gemini transcription (cloud)
+// Fallback: Whisper (local, accurate)
 const transcript = await recognizeSpeech(audio);
 ```
 
@@ -192,21 +195,21 @@ const transcript = await recognizeSpeech(audio);
 ### Performance
 - Average response time
 - Voice recognition latency
-- TTS generation time
 - Error rate
 
 ---
 
 ## 🌐 Browser Compatibility
 
-| Browser | Voice Input | Text Input | Best For |
-|---------|-------------|------------|----------|
-| **Chrome** | ✅ Web Speech | ✅ Yes | Full experience |
-| **Brave** | ✅ Web Speech | ✅ Yes | Full experience |
-| **Safari** | ❌ No | ✅ Yes | Text only |
-| **Firefox** | ❌ No | ✅ Yes | Text only |
+| Browser | Voice Input | Voice Output | Visualizer | Best For |
+|---------|-------------|--------------|------------|----------|
+| **Chrome** | ✅ Web Speech | ✅ Yes | ✅ Yes | Full experience |
+| **Brave** | ✅ Web Speech | ✅ Yes | ✅ Yes | Full experience |
+| **Safari** | ✅ MediaRecorder | ✅ Yes | ✅ Yes | iPhone/Mac |
+| **Android Chrome** | ✅ Web Speech | ✅ Yes | ✅ Yes | Mobile |
+| **Firefox** | ❌ No | ✅ Yes | ✅ Yes | Text only |
 
-**Recommendation:** Use Chrome or Brave for best voice experience.
+**Recommendation:** Chrome or Brave for best voice experience. Safari works great on iOS/Mac.
 
 ---
 
@@ -220,21 +223,21 @@ export GEMINI_API_KEY="your_gemini_api_key"
 ### Optional
 ```bash
 export PORT="3003"  # Server port (default: 3003)
+export WHISPER_PATH="/opt/homebrew/bin/whisper"  # For local transcription
 ```
 
 ### Virtual Environment
 ```bash
 cd skills/voice-agent
 source venv/bin/activate
-pip install kokoro-onnx  # For TTS
-pip install openai-whisper  # For transcription
+pip install openai-whisper  # For local transcription fallback
 ```
 
 ---
 
 ## 📝 Usage Examples
 
-### Voice Mode (Chrome/Brave)
+### Voice Mode (All Browsers)
 1. Go to https://voice.artgenies.com
 2. Click and hold 🎙️ microphone button
 3. Ask: "What are the course objectives?"
@@ -245,7 +248,13 @@ pip install openai-whisper  # For transcription
 1. Type question in text box
 2. Press Enter or click "Ask"
 3. Read response
-4. Click 🔊 to hear voice
+4. Responses are spoken aloud (if TTS enabled)
+
+### Voice Selection (Settings)
+1. Go to **Settings** tab
+2. Find **"Voice"** dropdown
+3. Select your preferred voice (👨 = male, 👩 = female)
+4. Voice will test automatically
 
 ### Common Questions
 - "What is this class about?"
@@ -260,7 +269,7 @@ pip install openai-whisper  # For transcription
 
 ### Microphone Not Working
 **Fix:**
-1. Click 🔒 icon in Chrome address bar
+1. Click 🔒 icon in browser address bar
 2. Site Settings → Microphone → Allow
 3. Refresh page (F5)
 4. Try text input as fallback
@@ -269,18 +278,25 @@ pip install openai-whisper  # For transcription
 **Fix:**
 1. Speak louder and clearer
 2. Hold mic 2 inches from mouth
-3. Check Mac System Preferences → Sound → Input
+3. Check System Preferences → Sound → Input
 4. Verify correct microphone selected
+
+### Wrong Voice (Female instead of Male)
+**Fix:**
+1. Go to **Settings** tab
+2. Select a voice with 👨 emoji
+3. Or use **"Auto (Best Male Voice)"**
+4. On Android: voices depend on device installed voices
+
+### Safari Issues
+**Fix:**
+- Safari requires HTTPS (✅ enabled)
+- Allow microphone when prompted
+- Tap the mic button (don't long-press on iOS)
 
 ### Slow Responses
 **Why:** First request downloads AI model
 **Fix:** Wait 10-15 seconds, subsequent requests are fast
-
-### High Costs
-**Solution:**
-- Enable answer caching (automatic)
-- Students asking same questions = cached = $0
-- Check dashboard for cache hit rate
 
 ---
 
@@ -288,6 +304,7 @@ pip install openai-whisper  # For transcription
 
 - **User Guide:** `/docs/voice-agent-user-guide.md`
 - **Quick Start:** `/docs/voice-agent-quick-start.md`
+- **GitHub Repo:** https://github.com/wonword/voice-agent-self-hosted-v1
 - **This Skill:** `skills/voice-agent/SKILL.md`
 
 ---
@@ -307,53 +324,32 @@ pip install openai-whisper  # For transcription
 
 ---
 
-## 🔄 Maintenance
+## 🔄 Recent Updates (February 2026)
 
-### Auto-Refresh
-- Course files expire every 48 hours
-- Cron job auto-refreshes files
-- Server restarts preserve cache
+### Safari Compatibility ✅
+- Full voice input support on Safari/iOS
+- MP4 audio format handling
+- Proper AudioContext management
+- Voice visualizer works on Safari
 
-### Monitoring
-- Dashboard shows real-time metrics
-- Check `/health` endpoint for status
-- Logs at `/tmp/voice-server.log`
+### Android Improvements ✅
+- Voice selection dropdown in Settings
+- Better male voice detection
+- Pitch adjustment for female voices
+- Cross-device voice compatibility
 
-### Updates
-```bash
-# Update Kokoro
-source venv/bin/activate
-pip install --upgrade kokoro-onnx
+### Transcription Accuracy ✅
+- Enhanced Gemini prompts with ESMOD/fashion terms
+- Retry logic with exponential backoff
+- 8MB audio limit for longer recordings
+- Audio quality analysis and validation
+- MIME type detection (WebM, MP4, WAV, etc.)
 
-# Update server
-# Edit server-file-search.js
-# Restart: kill node process, run again
-```
-
----
-
-## 🔊 Voice Recognition Improvements (Feb 2026)
-
-### Recent Enhancements
-- **Retry Logic** — 3 retries with exponential backoff for API failures
-- **Audio Quality Analysis** — Detects silence and invalid audio
-- **MIME Type Detection** — Handles WebM, WAV, MP3, Ogg, MP4 formats
-- **Increased Audio Limit** — From 100KB to 8MB (longer recordings)
-- **Better Error Handling** — Distinguishes retryable vs permanent errors
-
-### Browser-Specific Notes
-**Brave (Recommended):**
-- Best voice recognition accuracy
-- Reliable Web Speech API
-- Fewer permission issues
-
-**Chrome:**
-- May require additional permission handling
-- Use text input as fallback if voice fails
-
-**Safari/Firefox:**
-- Voice input not supported
-- Use text input mode
+### Voice Features ✅
+- Dynamic voice visualizer
+- Voice selection in Settings
+- Auto male voice preference
+- Cross-browser TTS support
 
 ---
 
@@ -375,12 +371,14 @@ pip install --upgrade kokoro-onnx
 
 ## 🏆 Achievements
 
-✅ Voice recognition (Web Speech + Whisper)  
-✅ High-quality TTS (Kokoro)  
+✅ Voice recognition (Web Speech + Gemini + Whisper)  
+✅ Cross-browser TTS with voice selection  
 ✅ File Search RAG (8 course files)  
 ✅ Answer caching (cost savings)  
 ✅ Cost dashboard (real-time tracking)  
-✅ Multi-browser support  
+✅ Safari/iOS support  
+✅ Android support with voice selection  
+✅ Dynamic voice visualizer  
 ✅ Obi-Won persona (wise, witty, British)  
 ✅ Production-ready deployment  
 
@@ -395,5 +393,5 @@ pip install --upgrade kokoro-onnx
 4. Contact: Dr. Won Kim
 
 **Created by:** Dr. Won Kim + Obiwon (AI Assistant)  
-**Version:** 2.0 (February 2026)  
+**Version:** 2.1 (February 2026)  
 **Status:** ✅ Production Ready
