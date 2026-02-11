@@ -4,6 +4,10 @@ const fs = require('fs');
 const path = require('path');
 const https = require('https');
 
+// Import enhanced transcription modules
+const { transcribe, CONFIG: TRANSCRIPTION_CONFIG, WHISPER_AVAILABLE } = require('./transcription-service');
+const { validateAudio, preprocessAudio } = require('./audio-processor');
+
 const PORT = 3003;
 const UPLOAD_DIR = '/tmp/gemini-voice-uploads';
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
@@ -26,6 +30,12 @@ const stats = {
     aiResponses: 0,
     chatCalls: 0,
     transcriptionCalls: 0,
+    transcriptionSuccess: 0,
+    transcriptionFailures: 0,
+    whisperFallbacks: 0,
+    lowConfidenceRetries: 0,
+    avgConfidence: 0,
+    totalConfidence: 0,
     inputTokens: 0,
     outputTokens: 0,
     cacheHits: 0,
@@ -115,6 +125,15 @@ const server = http.createServer((req, res) => {
             aiResponses: stats.aiResponses,
             chatCalls: stats.chatCalls,
             transcriptionCalls: stats.transcriptionCalls,
+            transcriptionSuccess: stats.transcriptionSuccess,
+            transcriptionFailures: stats.transcriptionFailures,
+            transcriptionSuccessRate: stats.transcriptionCalls > 0 ? 
+                ((stats.transcriptionSuccess / stats.transcriptionCalls) * 100).toFixed(1) : 0,
+            whisperFallbacks: stats.whisperFallbacks,
+            fallbackRate: stats.transcriptionSuccess > 0 ? 
+                ((stats.whisperFallbacks / stats.transcriptionSuccess) * 100).toFixed(1) : 0,
+            lowConfidenceRetries: stats.lowConfidenceRetries,
+            avgConfidence: stats.avgConfidence.toFixed(2),
             inputTokens: stats.inputTokens,
             outputTokens: stats.outputTokens,
             cacheHits: stats.cacheHits,
@@ -125,6 +144,13 @@ const server = http.createServer((req, res) => {
                 gemini: ((stats.inputTokens * 0.0000001) + (stats.outputTokens * 0.0000004)),
                 transcription: stats.transcriptionCalls * 0.0001,
                 total: ((stats.inputTokens * 0.0000001) + (stats.outputTokens * 0.0000004)) + (stats.transcriptionCalls * 0.0001)
+            },
+            transcriptionConfig: {
+                confidenceThreshold: TRANSCRIPTION_CONFIG.confidenceThreshold,
+                useWhisperFallback: TRANSCRIPTION_CONFIG.useWhisperFallback,
+                whisperAvailable: WHISPER_AVAILABLE,
+                whisperModel: TRANSCRIPTION_CONFIG.whisperModel,
+                maxRetries: TRANSCRIPTION_CONFIG.maxRetries
             },
             avgResponseTime: '~2s',
             transcriptionTime: '~1s',
@@ -186,86 +212,18 @@ function sendErrorResponse(res, statusCode, errorType, message, details = null) 
 }
 
 // ============================================
-// SLEEP HELPER FOR RETRY DELAYS
+// TRANSCRIPTION CONFIGURATION
+// (Audio processing functions now in audio-processor.js)
 // ============================================
-function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
 
 // ============================================
-// AUDIO PREPROCESSING - Analyze audio quality
-// ============================================
-function analyzeAudioQuality(buffer) {
-    // Check if buffer has valid audio header
-    const hasWebmHeader = buffer.length > 4 && 
-        (buffer.toString('hex', 0, 4) === '1a45dfa3' || // EBML header (WebM)
-         buffer.toString('ascii', 0, 4) === 'RIFF' ||   // WAV header
-         buffer.toString('hex', 0, 2) === 'ffe3' ||     // MP3 header
-         buffer.toString('hex', 0, 2) === 'fff3');      // MP3 header variant
-    
-    // Calculate audio entropy (simple measure of "quality")
-    let entropy = 0;
-    const sampleSize = Math.min(buffer.length, 1024);
-    let zeroCount = 0;
-    
-    for (let i = 0; i < sampleSize; i++) {
-        if (buffer[i] === 0) zeroCount++;
-    }
-    
-    const zeroRatio = zeroCount / sampleSize;
-    const quality = {
-        hasValidHeader: hasWebmHeader,
-        zeroRatio: zeroRatio,
-        isMostlySilence: zeroRatio > 0.9,
-        size: buffer.length,
-        recommended: true
-    };
-    
-    if (zeroRatio > 0.95) {
-        quality.recommended = false;
-        quality.issue = 'Audio appears to be mostly silence';
-    }
-    
-    return quality;
-}
-
-// ============================================
-// DETECT MIME TYPE FROM BUFFER
-// ============================================
-function detectMimeType(buffer) {
-    if (buffer.length < 4) return 'audio/webm'; // default
-    
-    const hexHeader = buffer.toString('hex', 0, 4);
-    const asciiHeader = buffer.toString('ascii', 0, 4);
-    
-    // WebM (EBML header)
-    if (hexHeader === '1a45dfa3') return 'audio/webm';
-    
-    // WAV (RIFF header)
-    if (asciiHeader === 'RIFF') return 'audio/wav';
-    
-    // MP3
-    if (hexHeader.startsWith('ffe3') || hexHeader.startsWith('fff3') || 
-        hexHeader.startsWith('fffb') || hexHeader.startsWith('fffa')) {
-        return 'audio/mpeg';
-    }
-    
-    // Ogg
-    if (asciiHeader === 'OggS') return 'audio/ogg';
-    
-    // MP4/M4A
-    const ftypCheck = buffer.toString('ascii', 4, 8);
-    if (ftypCheck === 'ftyp') return 'audio/mp4';
-    
-    return 'audio/webm'; // default fallback
-}
-
-// ============================================
-// MAIN TRANSCRIPTION HANDLER WITH RETRY LOGIC
+// ENHANCED TRANSCRIPTION HANDLER
+// Uses transcription-service module with Whisper fallback
 // ============================================
 async function handleGeminiTranscription(req, res) {
     const chunks = [];
     let requestAborted = false;
+    const requestStartTime = Date.now();
     
     // Handle client disconnect
     req.on('close', () => {
@@ -288,311 +246,100 @@ async function handleGeminiTranscription(req, res) {
             
             const buffer = Buffer.concat(chunks);
             
-            // Validate audio buffer exists
-            if (!buffer || buffer.length === 0) {
-                console.log(`[${new Date().toISOString()}] No audio data received`);
-                sendErrorResponse(res, 400, 'INVALID_AUDIO', 'No audio data received');
+            // Validate audio using enhanced validator
+            const validation = validateAudio(buffer);
+            
+            if (!validation.valid) {
+                if (validation.code === 'TOO_SHORT') {
+                    console.log(`[${new Date().toISOString()}] Audio too short: ${buffer.length} bytes`);
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ 
+                        transcript: '', 
+                        message: 'Audio too short - please speak longer',
+                        audioQuality: validation.quality
+                    }));
+                    return;
+                }
+                
+                if (validation.code === 'SILENCE') {
+                    console.log(`[${new Date().toISOString()}] Audio is mostly silence`);
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ 
+                        transcript: '', 
+                        message: 'No speech detected. Please try speaking louder or closer to the microphone.',
+                        audioQuality: validation.quality,
+                        confidence: 0
+                    }));
+                    return;
+                }
+                
+                console.log(`[${new Date().toISOString()}] Audio validation failed:`, validation.error);
+                sendErrorResponse(res, 400, 'INVALID_AUDIO', validation.error);
                 return;
             }
-            
-            // Check minimum audio size
-            if (buffer.length < MIN_AUDIO_SIZE) {
-                console.log(`[${new Date().toISOString()}] Audio too short: ${buffer.length} bytes`);
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ 
-                    transcript: '', 
-                    message: 'Audio too short - please speak longer',
-                    audioQuality: { tooShort: true }
-                }));
-                return;
-            }
-            
-            // Check maximum audio size
-            if (buffer.length > MAX_AUDIO_SIZE) {
-                console.log(`[${new Date().toISOString()}] Audio too large: ${buffer.length} bytes`);
-                sendErrorResponse(res, 413, 'AUDIO_TOO_LARGE', `Audio file exceeds maximum size of ${MAX_AUDIO_SIZE / 1024 / 1024}MB`);
-                return;
-            }
-            
-            // Analyze audio quality
-            const quality = analyzeAudioQuality(buffer);
-            if (!quality.recommended) {
-                console.warn(`[${new Date().toISOString()}] Audio quality warning:`, quality.issue);
-            }
-            
-            // Detect MIME type from buffer
-            const detectedMimeType = detectMimeType(buffer);
-            
-            // Check if audio is too large for Gemini API (truncate if needed)
-            let audioBuffer = buffer;
-            if (buffer.length > GEMINI_AUDIO_LIMIT) {
-                console.log(`[${new Date().toISOString()}] Audio truncated: ${buffer.length} -> ${GEMINI_AUDIO_LIMIT} bytes`);
-                audioBuffer = buffer.slice(0, GEMINI_AUDIO_LIMIT);
-            }
-            
-            // Validate API key is configured
-            if (!GEMINI_API_KEY) {
-                console.error(`[${new Date().toISOString()}] GEMINI_API_KEY not configured`);
-                sendErrorResponse(res, 500, 'CONFIG_ERROR', 'Transcription service not properly configured');
-                return;
-            }
-            
-            const base64Audio = audioBuffer.toString('base64');
-            
-            // Validate base64 conversion
-            if (!base64Audio || base64Audio.length === 0) {
-                console.error(`[${new Date().toISOString()}] Failed to encode audio to base64`);
-                sendErrorResponse(res, 500, 'ENCODING_ERROR', 'Failed to process audio data');
-                return;
-            }
-            
-            console.log(`[${new Date().toISOString()}] Transcribing audio (${audioBuffer.length} bytes, ${detectedMimeType})...`);
             
             stats.transcriptionCalls++;
             
-            // ============================================
-            // RETRY LOOP WITH EXPONENTIAL BACKOFF
-            // ============================================
-            let lastError = null;
-            let transcriptionResult = null;
+            // Preprocess audio for better transcription accuracy
+            console.log(`[${new Date().toISOString()}] Preprocessing audio (${validation.buffer.length} bytes, quality: ${validation.quality.quality})...`);
+            const preprocessed = await preprocessAudio(validation.buffer);
             
-            for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-                try {
-                    transcriptionResult = await attemptTranscription(base64Audio, detectedMimeType);
-                    
-                    // Success! Break out of retry loop
-                    if (transcriptionResult.success) {
-                        break;
-                    }
-                } catch (error) {
-                    lastError = error;
-                    
-                    // Don't retry on certain errors
-                    if (error.type === 'INVALID_REQUEST' || error.type === 'INVALID_API_KEY' || 
-                        error.type === 'FORBIDDEN' || error.type === 'CONTENT_BLOCKED') {
-                        console.log(`[${new Date().toISOString()}] Non-retryable error on attempt ${attempt}:`, error.type);
-                        break;
-                    }
-                    
-                    // Check if we should retry
-                    if (attempt < MAX_RETRIES) {
-                        const delay = Math.min(RETRY_DELAY_BASE * Math.pow(2, attempt - 1), RETRY_DELAY_MAX);
-                        console.log(`[${new Date().toISOString()}] Retrying transcription (attempt ${attempt + 1}/${MAX_RETRIES}) after ${delay}ms...`);
-                        await sleep(delay);
-                    }
-                }
+            console.log(`[${new Date().toISOString()}] Transcribing audio (${preprocessed.buffer.length} bytes, processed: ${preprocessed.processed})...`);
+            
+            // Use enhanced transcription service with fallback
+            const result = await transcribe(preprocessed.buffer, {
+                useWhisperFallback: TRANSCRIPTION_CONFIG.useWhisperFallback
+            });
+            
+            // Update stats
+            stats.transcriptionSuccess++;
+            stats.totalConfidence += result.confidence;
+            stats.avgConfidence = stats.totalConfidence / stats.transcriptionSuccess;
+            
+            if (result.fallback) {
+                stats.whisperFallbacks++;
             }
             
-            // ============================================
-            // HANDLE FINAL RESULT
-            // ============================================
-            if (transcriptionResult && transcriptionResult.success) {
-                let transcription = transcriptionResult.text.trim();
-                
-                // Clean up transcription
-                if (transcription === '[no speech detected]' || 
-                    transcription === '[No speech detected]' ||
-                    transcription === '[silence]' ||
-                    transcription.toLowerCase().includes('no speech')) {
-                    transcription = '';
-                }
-                
-                console.log(`[${new Date().toISOString()}] Transcribed: "${transcription.substring(0, 100)}${transcription.length > 100 ? '...' : ''}"`);
-                
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ 
-                    transcript: transcription,
-                    success: true,
-                    audioQuality: quality,
-                    attempts: transcriptionResult.attempts || 1
-                }));
-                return;
+            if (result.confidence < TRANSCRIPTION_CONFIG.confidenceThreshold) {
+                stats.lowConfidenceRetries++;
             }
             
-            // If we got here, all retries failed
-            if (lastError) {
-                console.error(`[${new Date().toISOString()}] All transcription attempts failed:`, lastError);
-                sendErrorResponse(res, lastError.statusCode || 500, lastError.type || 'TRANSCRIPTION_FAILED', 
-                    lastError.message || 'Transcription failed after multiple attempts', 
-                    { attempts: MAX_RETRIES });
-                return;
-            }
+            const duration = Date.now() - requestStartTime;
             
-            // Unexpected case
-            sendErrorResponse(res, 500, 'UNKNOWN_ERROR', 'An unexpected error occurred during transcription');
+            console.log(`[${new Date().toISOString()}] Transcribed (${result.method}, confidence: ${result.confidence.toFixed(2)}, ${duration}ms): "${result.text.substring(0, 80)}${result.text.length > 80 ? '...' : ''}"`);
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ 
+                transcript: result.text,
+                success: true,
+                confidence: result.confidence,
+                method: result.method,
+                fallback: result.fallback || false,
+                duration: duration,
+                audioQuality: result.quality,
+                attempts: result.attempts?.length || 1
+            }));
             
         } catch (error) {
-            console.error(`[${new Date().toISOString()}] Unexpected transcription error:`, error);
-            sendErrorResponse(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred during transcription', { 
-                message: error.message,
-                type: error.name
-            });
+            stats.transcriptionFailures++;
+            stats.errors++;
+            
+            console.error(`[${new Date().toISOString()}] Transcription error:`, error.message);
+            
+            sendErrorResponse(
+                res, 
+                error.statusCode || 500, 
+                error.type || 'TRANSCRIPTION_FAILED', 
+                error.message || 'Transcription failed',
+                { 
+                    retryable: error.type === 'RATE_LIMIT' || 
+                              error.type === 'TIMEOUT' || 
+                              error.type === 'NETWORK_ERROR' ||
+                              error.type === 'SERVICE_ERROR'
+                }
+            );
         }
     });
-}
-
-// ============================================
-// SINGLE TRANSCRIPTION ATTEMPT
-// ============================================
-async function attemptTranscription(base64Audio, mimeType) {
-    // Set up timeout using AbortController
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => {
-        controller.abort();
-    }, TRANSCRIPTION_TIMEOUT);
-    
-    try {
-        // Enhanced transcription prompt for better accuracy
-        const transcriptionPrompt = `Transcribe this audio to text with the following requirements:
-- Listen carefully and transcribe exactly what is spoken
-- The speaker is likely discussing AI, Creative Technology, or the ESMOD course
-- Ignore background noise, focus on clear speech
-- If audio is unclear, noisy, or contains no intelligible speech, respond with "[no speech detected]"
-- Only return the spoken words, no explanations or formatting
-- If multiple people are speaking, transcribe the clearest voice`;
-
-        const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + GEMINI_API_KEY, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{
-                    parts: [
-                        {
-                            inlineData: {
-                                mimeType: mimeType,
-                                data: base64Audio
-                            }
-                        },
-                        { text: transcriptionPrompt }
-                    ]
-                }]
-            }),
-            signal: controller.signal
-        });
-        
-        clearTimeout(timeoutId);
-        
-        // Handle HTTP errors
-        if (!response.ok) {
-            let errorType = 'API_ERROR';
-            let statusCode = response.status;
-            let message = `HTTP ${response.status}: ${response.statusText}`;
-            
-            // Parse specific error codes
-            switch (response.status) {
-                case 400:
-                    errorType = 'INVALID_REQUEST';
-                    message = 'Invalid request to transcription service';
-                    break;
-                case 401:
-                    errorType = 'INVALID_API_KEY';
-                    message = 'Invalid API key. Please check your configuration.';
-                    break;
-                case 403:
-                    errorType = 'FORBIDDEN';
-                    message = 'API access denied. Please verify your API key permissions.';
-                    break;
-                case 429:
-                    errorType = 'RATE_LIMIT';
-                    message = 'Rate limit exceeded. Please wait a moment and try again.';
-                    break;
-                case 500:
-                case 502:
-                case 503:
-                    errorType = 'SERVICE_UNAVAILABLE';
-                    message = 'Transcription service temporarily unavailable. Please try again later.';
-                    break;
-            }
-            
-            throw { type: errorType, statusCode, message, retryable: errorType !== 'INVALID_REQUEST' && errorType !== 'INVALID_API_KEY' && errorType !== 'FORBIDDEN' };
-        }
-        
-        let responseData;
-        try {
-            responseData = await response.json();
-        } catch (parseError) {
-            throw { type: 'PARSE_ERROR', statusCode: 500, message: 'Failed to parse transcription service response', retryable: false };
-        }
-        
-        // Check for API-level errors in response body
-        if (responseData.error) {
-            const apiError = responseData.error;
-            let errorType = 'API_ERROR';
-            let statusCode = 500;
-            let message = apiError.message || 'Transcription service error';
-            
-            // Handle specific error codes
-            if (apiError.code) {
-                switch (apiError.code) {
-                    case 400:
-                        errorType = 'INVALID_REQUEST';
-                        statusCode = 400;
-                        message = 'Invalid audio format or request parameters';
-                        break;
-                    case 401:
-                        errorType = 'INVALID_API_KEY';
-                        statusCode = 401;
-                        message = 'Invalid or expired API key';
-                        break;
-                    case 403:
-                        errorType = 'FORBIDDEN';
-                        statusCode = 403;
-                        message = 'API key does not have permission for this operation';
-                        break;
-                    case 429:
-                        errorType = 'RATE_LIMIT';
-                        statusCode = 429;
-                        message = 'Rate limit exceeded. Please wait before trying again.';
-                        break;
-                    case 500:
-                    case 502:
-                    case 503:
-                        errorType = 'SERVICE_UNAVAILABLE';
-                        statusCode = 503;
-                        message = 'Transcription service temporarily unavailable';
-                        break;
-                }
-            }
-            
-            throw { type: errorType, statusCode, message, retryable: errorType === 'RATE_LIMIT' || errorType === 'SERVICE_UNAVAILABLE' };
-        }
-        
-        // Validate response structure
-        if (!responseData.candidates || !Array.isArray(responseData.candidates) || responseData.candidates.length === 0) {
-            throw { type: 'INVALID_RESPONSE', statusCode: 500, message: 'Transcription service returned an invalid response', retryable: true };
-        }
-        
-        // Check for blocked content
-        const candidate = responseData.candidates[0];
-        if (candidate.finishReason && candidate.finishReason !== 'STOP') {
-            if (candidate.finishReason === 'SAFETY') {
-                throw { type: 'CONTENT_BLOCKED', statusCode: 400, message: 'Audio content could not be processed due to safety filters', retryable: false };
-            }
-        }
-        
-        const transcription = candidate.content?.parts?.[0]?.text || '';
-        
-        return { 
-            success: true, 
-            text: transcription,
-            attempts: 1
-        };
-        
-    } catch (fetchError) {
-        clearTimeout(timeoutId);
-        
-        if (fetchError.name === 'AbortError') {
-            throw { type: 'TIMEOUT', statusCode: 504, message: 'Transcription request timed out. Please try again.', retryable: true };
-        }
-        
-        // If already formatted error, pass through
-        if (fetchError.type) {
-            throw fetchError;
-        }
-        
-        // Network error
-        throw { type: 'NETWORK_ERROR', statusCode: 503, message: 'Unable to connect to transcription service. Please check your network connection.', retryable: true };
-    }
 }
 
 function getSystemPrompt(userMessage) {
@@ -766,7 +513,11 @@ server.listen(PORT, () => {
     console.log(`🧙‍♂️ Obiwon Gemini Voice Tutor running on http://localhost:${PORT}`);
     console.log(`🤖 AI: Gemini 2.0 Flash + RAG Knowledge Base`);
     console.log(`📚 RAG: ${RAG_KNOWLEDGE ? '✅ Loaded' : '❌ Not loaded'}`);
-    console.log(`🎙️ Voice: Using Gemini + Browser TTS`);
+    console.log(`🎙️ Voice: Gemini Transcription + Whisper Fallback`);
+    console.log(`   └─ Confidence threshold: ${TRANSCRIPTION_CONFIG.confidenceThreshold}`);
+    console.log(`   └─ Whisper fallback: ${TRANSCRIPTION_CONFIG.useWhisperFallback ? '✅ Enabled' : '❌ Disabled'}`);
+    console.log(`   └─ Whisper available: ${WHISPER_AVAILABLE ? '✅ Yes' : '❌ No'}`);
+    console.log(`   └─ Whisper model: ${TRANSCRIPTION_CONFIG.whisperModel}`);
     console.log(`🌐 For remote access: ngrok http ${PORT}`);
 });
 
