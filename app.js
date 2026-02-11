@@ -175,7 +175,7 @@ function drawIdleVisualizer() {
     }
 }
 
-function startRealVisualizer(stream) {
+async function startRealVisualizer(stream) {
     if (!visualizerCtx || !visualizerCanvas) return;
     
     // Cancel idle animation
@@ -186,15 +186,21 @@ function startRealVisualizer(stream) {
     AppState.audioContext = new AudioContextClass();
     
     // Safari requires audio context to be resumed after user interaction
+    // Must be done BEFORE creating analyser for Safari
     if (AppState.audioContext.state === 'suspended') {
-        AppState.audioContext.resume().catch(err => {
+        try {
+            await AppState.audioContext.resume();
+            console.log('AudioContext resumed successfully');
+        } catch (err) {
             console.log('AudioContext resume failed:', err);
-        });
+        }
     }
     
     AppState.analyser = AppState.audioContext.createAnalyser();
-    AppState.analyser.fftSize = 64;
-    AppState.analyser.smoothingTimeConstant = 0.8;
+    AppState.analyser.fftSize = 128; // Increased for Safari
+    AppState.analyser.smoothingTimeConstant = 0.7;
+    AppState.analyser.minDecibels = -90;
+    AppState.analyser.maxDecibels = -10;
     
     const source = AppState.audioContext.createMediaStreamSource(stream);
     source.connect(AppState.analyser);
@@ -202,10 +208,13 @@ function startRealVisualizer(stream) {
     const bufferLength = AppState.analyser.frequencyBinCount;
     const dataArray = new Uint8Array(bufferLength);
     
-    const width = visualizerCanvas.width / (window.devicePixelRatio || 1);
-    const height = visualizerCanvas.height / (window.devicePixelRatio || 1);
+    const dpr = window.devicePixelRatio || 1;
+    const width = visualizerCanvas.width / dpr;
+    const height = visualizerCanvas.height / dpr;
     const barCount = 24;
     const barWidth = (width / barCount) - 2;
+    
+    let frameCount = 0;
     
     function draw() {
         if (!AppState.isListening) {
@@ -214,14 +223,36 @@ function startRealVisualizer(stream) {
         }
         
         animationId = requestAnimationFrame(draw);
+        
+        // Safari sometimes needs a few frames to start getting data
+        frameCount++;
+        
         AppState.analyser.getByteFrequencyData(dataArray);
         
-        visualizerCtx.clearRect(0, 0, width, height);
+        visualizerCtx.clearRect(0, 0, visualizerCanvas.width, visualizerCanvas.height);
+        
+        // Check if we have actual audio data (not all zeros)
+        let hasData = false;
+        let sum = 0;
+        for (let i = 0; i < bufferLength; i++) {
+            sum += dataArray[i];
+            if (dataArray[i] > 0) hasData = true;
+        }
+        
+        // Fallback for Safari: simulate visualizer if no data yet
+        const useSimulated = isSafari && !hasData && frameCount < 60;
         
         // Draw bars based on frequency data
         for (let i = 0; i < barCount; i++) {
             const dataIndex = Math.floor(i * (bufferLength / barCount));
-            const value = dataArray[dataIndex] || 0;
+            let value = dataArray[dataIndex] || 0;
+            
+            // Safari fallback: use simulated wave if no real data
+            if (useSimulated) {
+                const time = Date.now() / 200;
+                const wave = Math.sin(time + i * 0.5) * 0.5 + 0.5;
+                value = Math.max(value, wave * 100 + 50);
+            }
             
             // Scale the value (0-255) to bar height
             const normalizedValue = value / 255;
@@ -244,7 +275,12 @@ function startRealVisualizer(stream) {
             
             visualizerCtx.fillStyle = gradient;
             visualizerCtx.beginPath();
-            visualizerCtx.roundRect(x, y, barWidth, barHeight, 2);
+            // Use rect for Safari compatibility (roundRect is newer)
+            if (visualizerCtx.roundRect) {
+                visualizerCtx.roundRect(x * dpr, y * dpr, barWidth * dpr, barHeight * dpr, 2 * dpr);
+            } else {
+                visualizerCtx.fillRect(x * dpr, y * dpr, barWidth * dpr, barHeight * dpr);
+            }
             visualizerCtx.fill();
         }
     }
@@ -447,10 +483,22 @@ function switchView(viewName) {
 // Microphone Permission
 async function checkMicrophonePermission() {
     try {
-        // Check if Chrome for specific instructions
+        // Show browser-specific instructions
         const isChrome = /Chrome/.test(navigator.userAgent) && /Google Inc/.test(navigator.vendor);
-        if (isChrome) {
-            document.getElementById('chromeInstructions')?.classList.remove('hidden');
+        const chromeInstructions = document.getElementById('chromeInstructions');
+        const safariInstructions = document.getElementById('safariInstructions');
+        
+        if (isChrome && chromeInstructions) {
+            chromeInstructions.classList.remove('hidden');
+        } else if (isSafari && safariInstructions) {
+            safariInstructions.classList.remove('hidden');
+        }
+        
+        // Safari doesn't fully support the permissions API for microphone
+        if (isSafari) {
+            // On Safari, we'll check permission by trying to getUserMedia
+            updateMicPermissionStatus('Prompt', 'yellow');
+            return;
         }
         
         if (navigator.permissions && navigator.permissions.query) {
@@ -537,8 +585,8 @@ async function startListening() {
         // Start recording immediately - no timeslice to capture from the very beginning
         AppState.mediaRecorder.start();
         
-        // Start visualizer
-        startRealVisualizer(stream);
+        // Start visualizer (await for Safari AudioContext setup)
+        await startRealVisualizer(stream);
         
     } catch (error) {
         console.error('Microphone access error:', error);
