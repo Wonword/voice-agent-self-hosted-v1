@@ -332,6 +332,31 @@ pip install --upgrade kokoro-onnx
 
 ---
 
+## 🔊 Voice Recognition Improvements (Feb 2026)
+
+### Recent Enhancements
+- **Retry Logic** — 3 retries with exponential backoff for API failures
+- **Audio Quality Analysis** — Detects silence and invalid audio
+- **MIME Type Detection** — Handles WebM, WAV, MP3, Ogg, MP4 formats
+- **Increased Audio Limit** — From 100KB to 8MB (longer recordings)
+- **Better Error Handling** — Distinguishes retryable vs permanent errors
+
+### Browser-Specific Notes
+**Brave (Recommended):**
+- Best voice recognition accuracy
+- Reliable Web Speech API
+- Fewer permission issues
+
+**Chrome:**
+- May require additional permission handling
+- Use text input as fallback if voice fails
+
+**Safari/Firefox:**
+- Voice input not supported
+- Use text input mode
+
+---
+
 ## 💡 Pro Tips
 
 **For Students:**
