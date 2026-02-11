@@ -18,6 +18,7 @@ const AppState = {
     mediaRecorder: null,
     recordedChunks: [],
     preInitializedStream: null,
+    recordingMimeType: null, // Store the actual MIME type used for recording
     stats: {
         totalQueries: 0,
         voiceQueries: 0,
@@ -28,6 +29,34 @@ const AppState = {
         autoSend: true
     }
 };
+
+// Safari Detection
+const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+              (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+// Get supported MIME type for MediaRecorder
+function getSupportedMimeType() {
+    const types = [
+        'audio/mp4',
+        'audio/aac',
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/ogg;codecs=opus',
+        'audio/ogg'
+    ];
+    
+    for (const type of types) {
+        if (MediaRecorder.isTypeSupported(type)) {
+            console.log('Using MIME type:', type);
+            return type;
+        }
+    }
+    
+    // Fallback - Safari will often still work without specifying type
+    console.log('No preferred MIME type supported, using default');
+    return '';
+}
 
 // DOM Elements
 const elements = {};
@@ -152,8 +181,17 @@ function startRealVisualizer(stream) {
     // Cancel idle animation
     if (animationId) cancelAnimationFrame(animationId);
     
-    // Setup Web Audio API
-    AppState.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    // Setup Web Audio API with Safari fallback
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    AppState.audioContext = new AudioContextClass();
+    
+    // Safari requires audio context to be resumed after user interaction
+    if (AppState.audioContext.state === 'suspended') {
+        AppState.audioContext.resume().catch(err => {
+            console.log('AudioContext resume failed:', err);
+        });
+    }
+    
     AppState.analyser = AppState.audioContext.createAnalyser();
     AppState.analyser.fftSize = 64;
     AppState.analyser.smoothingTimeConstant = 0.8;
@@ -275,40 +313,41 @@ function bindEvents() {
     
     // Populate voice selector when voices are loaded
     if (window.speechSynthesis) {
-        const populateVoiceSelector = () => {
-            if (!elements.voiceSelector) return;
-            
-            const voices = window.speechSynthesis.getVoices();
-            if (voices.length === 0) return;
-            
-            // Clear existing options except first
-            while (elements.voiceSelector.options.length > 1) {
-                elements.voiceSelector.remove(1);
-            }
-            
-            // Add all voices
-            voices.forEach((voice, index) => {
-                const option = document.createElement('option');
-                option.value = index;
-                const isMale = !voice.name.toLowerCase().includes('female') && 
-                              !voice.name.toLowerCase().includes('zira') &&
-                              !voice.name.toLowerCase().includes('samantha');
-                option.textContent = `${voice.name} (${voice.lang}) ${isMale ? '👨' : '👩'}`;
-                elements.voiceSelector.appendChild(option);
-            });
-            
-            console.log('Voice selector populated with', voices.length, 'voices');
-        };
-        
         // Try to populate immediately
         populateVoiceSelector();
         
-        // And when voices change
+        // And when voices change (for Safari)
         window.speechSynthesis.onvoiceschanged = () => {
             refreshVoices();
             populateVoiceSelector();
         };
     }
+}
+
+// Populate voice selector - defined globally for Safari compatibility
+function populateVoiceSelector() {
+    if (!elements.voiceSelector) return;
+    
+    const voices = window.speechSynthesis.getVoices();
+    if (voices.length === 0) return;
+    
+    // Clear existing options except first
+    while (elements.voiceSelector.options.length > 1) {
+        elements.voiceSelector.remove(1);
+    }
+    
+    // Add all voices
+    voices.forEach((voice, index) => {
+        const option = document.createElement('option');
+        option.value = index;
+        const isMale = !voice.name.toLowerCase().includes('female') && 
+                      !voice.name.toLowerCase().includes('zira') &&
+                      !voice.name.toLowerCase().includes('samantha');
+        option.textContent = `${voice.name} (${voice.lang}) ${isMale ? '👨' : '👩'}`;
+        elements.voiceSelector.appendChild(option);
+    });
+    
+    console.log('Voice selector populated with', voices.length, 'voices');
     
     // Mobile nav buttons
     document.querySelectorAll('.mobile-nav-btn').forEach(btn => {
@@ -483,9 +522,13 @@ async function startListening() {
         AppState.isListening = true;
         AppState.recordedChunks = [];
         
-        // Setup MediaRecorder for audio capture
-        const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
-        AppState.mediaRecorder = new MediaRecorder(stream, { mimeType });
+        // Setup MediaRecorder for audio capture with Safari-compatible MIME type
+        AppState.recordingMimeType = getSupportedMimeType();
+        const recorderOptions = AppState.recordingMimeType ? { mimeType: AppState.recordingMimeType } : {};
+        AppState.mediaRecorder = new MediaRecorder(stream, recorderOptions);
+        
+        // Store actual MIME type from the recorder (may differ from requested)
+        AppState.recordingMimeType = AppState.mediaRecorder.mimeType || AppState.recordingMimeType || 'audio/mp4';
         
         AppState.mediaRecorder.ondataavailable = (e) => {
             if (e.data.size > 0) AppState.recordedChunks.push(e.data);
@@ -499,7 +542,20 @@ async function startListening() {
         
     } catch (error) {
         console.error('Microphone access error:', error);
-        showToast('Microphone access denied. Please enable it in settings.', 'error');
+        
+        // Safari-specific error messages
+        let errorMsg = 'Microphone access denied. Please enable it in settings.';
+        if (isSafari) {
+            if (error.name === 'NotAllowedError') {
+                errorMsg = 'Microphone access denied. Please allow access in Safari > Settings for This Website.';
+            } else if (error.name === 'NotFoundError') {
+                errorMsg = 'No microphone found. Please connect a microphone and try again.';
+            } else if (isIOS && location.protocol !== 'https:') {
+                errorMsg = 'Microphone requires HTTPS. Please use a secure connection.';
+            }
+        }
+        
+        showToast(errorMsg, 'error');
         // Reset UI on error
         elements.micButton?.classList.remove('listening');
         elements.micButton?.classList.add('idle');
@@ -538,7 +594,10 @@ async function stopListening() {
     // Process recorded audio
     setTimeout(async () => {
         if (AppState.recordedChunks.length > 0) {
-            const audioBlob = new Blob(AppState.recordedChunks, { type: 'audio/webm' });
+            // Use the actual MIME type from recording for Safari compatibility
+            const blobType = AppState.recordingMimeType || 'audio/mp4';
+            const audioBlob = new Blob(AppState.recordedChunks, { type: blobType });
+            console.log('Created audio blob:', blobType, 'size:', audioBlob.size);
             await processVoiceQuery(audioBlob);
         }
         
@@ -639,6 +698,11 @@ function speakText(text) {
     // Cancel any ongoing speech
     window.speechSynthesis.cancel();
     
+    // Safari workaround: ensure voices are loaded
+    if (isSafari && !voicesLoaded) {
+        initSpeechSynthesis();
+    }
+    
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.rate = 1;
     
@@ -661,24 +725,77 @@ function speakText(text) {
         return;
     }
     
+    // Safari requires utterance to be created fresh for each speak call
+    utterance.onerror = (e) => {
+        console.error('Speech synthesis error:', e.error);
+        // Retry once on Safari
+        if (isSafari && e.error === 'canceled') {
+            setTimeout(() => {
+                const retry = new SpeechSynthesisUtterance(text);
+                retry.voice = voice;
+                retry.rate = 1;
+                retry.pitch = utterance.pitch;
+                window.speechSynthesis.speak(retry);
+            }, 100);
+        }
+    };
+    
     window.speechSynthesis.speak(utterance);
 }
 
 // Ensure voices are loaded - mobile browsers load voices asynchronously
 let cachedVoices = [];
 let selectedVoice = null; // User-selected voice preference
+let voicesLoaded = false;
 
 function refreshVoices() {
-    cachedVoices = window.speechSynthesis.getVoices();
-    console.log('Available voices:', cachedVoices.map(v => `${v.name} (${v.lang})`).join(', '));
+    // Safari requires getVoices() to be called after onvoiceschanged fires
+    // but may return empty array initially
+    const voices = window.speechSynthesis.getVoices();
     
-    // Log all voice names for debugging
-    console.log('All available voices:');
+    if (voices.length === 0 && !voicesLoaded) {
+        console.log('Voices not loaded yet, waiting for onvoiceschanged...');
+        return [];
+    }
+    
+    cachedVoices = voices;
+    voicesLoaded = true;
+    
+    console.log('Available voices:', cachedVoices.length);
     cachedVoices.forEach((v, i) => {
-        console.log(`${i}: ${v.name} (${v.lang}) - ${v.default ? 'DEFAULT' : ''}`);
+        console.log(`${i}: ${v.name} (${v.lang})${v.default ? ' [DEFAULT]' : ''}`);
     });
     
     return cachedVoices;
+}
+
+// Safari-specific voice loading
+function initSpeechSynthesis() {
+    if (!window.speechSynthesis) return;
+    
+    // Try to load voices immediately
+    refreshVoices();
+    
+    // Safari fires onvoiceschanged when voices become available
+    window.speechSynthesis.onvoiceschanged = () => {
+        console.log('Voices changed event fired');
+        voicesLoaded = true;
+        refreshVoices();
+        
+        // Populate voice selector if it exists
+        if (elements.voiceSelector) {
+            populateVoiceSelector();
+        }
+    };
+    
+    // Safari workaround: sometimes voices don't load until speak() is called
+    // Create a silent utterance to trigger voice loading
+    if (isSafari && cachedVoices.length === 0) {
+        const silentUtterance = new SpeechSynthesisUtterance('');
+        silentUtterance.volume = 0;
+        window.speechSynthesis.speak(silentUtterance);
+        window.speechSynthesis.cancel(); // Cancel immediately
+    }
 }
 
 function getBestMaleVoice() {
@@ -749,14 +866,9 @@ function getBestMaleVoice() {
     return voices.find(v => v.lang.startsWith('en')) || voices[0];
 }
 
+// Initialize speech synthesis with Safari support
 if (window.speechSynthesis) {
-    // Initial load
-    refreshVoices();
-    
-    // Mobile browsers fire this when voices are available
-    window.speechSynthesis.onvoiceschanged = () => {
-        refreshVoices();
-    };
+    initSpeechSynthesis();
 }
 
 function addMessage(text, sender) {
@@ -946,6 +1058,12 @@ function showToast(message, type = 'info') {
 // Pre-initialize microphone stream to reduce button-click delay
 async function preInitializeMicrophone() {
     try {
+        // Safari/iOS doesn't allow pre-initialization without user gesture
+        if (isSafari && !AppState.micPermission) {
+            console.log('Skipping mic pre-initialization on Safari (requires user gesture)');
+            return;
+        }
+        
         // Request mic permission early and keep stream ready
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         AppState.preInitializedStream = stream;
@@ -953,6 +1071,11 @@ async function preInitializeMicrophone() {
         console.log('Microphone pre-initialized');
     } catch (err) {
         console.log('Mic pre-initialization failed:', err.message);
+        
+        // Safari-specific handling
+        if (isSafari && err.name === 'NotAllowedError') {
+            console.log('Safari requires explicit user gesture for microphone');
+        }
     }
 }
 
