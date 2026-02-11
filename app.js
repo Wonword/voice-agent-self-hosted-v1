@@ -86,6 +86,7 @@ function cacheElements() {
     
     // Settings
     elements.ttsToggle = document.getElementById('ttsToggle');
+    elements.voiceSelector = document.getElementById('voiceSelector');
 }
 
 // Canvas Visualizer Setup
@@ -252,6 +253,62 @@ function bindEvents() {
         localStorage.setItem('voiceAgentSettings', JSON.stringify(AppState.settings));
         showToast(`Text-to-Speech ${e.target.checked ? 'enabled' : 'disabled'}`);
     });
+    
+    // Voice selector
+    elements.voiceSelector?.addEventListener('change', (e) => {
+        const voiceIndex = parseInt(e.target.value);
+        if (!isNaN(voiceIndex) && cachedVoices[voiceIndex]) {
+            selectedVoice = cachedVoices[voiceIndex];
+            console.log('User selected voice:', selectedVoice.name);
+            showToast(`Voice set to: ${selectedVoice.name}`);
+            
+            // Test the voice
+            const testUtterance = new SpeechSynthesisUtterance("This is the new voice.");
+            testUtterance.voice = selectedVoice;
+            testUtterance.pitch = selectedVoice.name.toLowerCase().includes('female') ? 0.8 : 0.95;
+            window.speechSynthesis.speak(testUtterance);
+        } else {
+            selectedVoice = null;
+            showToast('Using auto voice selection');
+        }
+    });
+    
+    // Populate voice selector when voices are loaded
+    if (window.speechSynthesis) {
+        const populateVoiceSelector = () => {
+            if (!elements.voiceSelector) return;
+            
+            const voices = window.speechSynthesis.getVoices();
+            if (voices.length === 0) return;
+            
+            // Clear existing options except first
+            while (elements.voiceSelector.options.length > 1) {
+                elements.voiceSelector.remove(1);
+            }
+            
+            // Add all voices
+            voices.forEach((voice, index) => {
+                const option = document.createElement('option');
+                option.value = index;
+                const isMale = !voice.name.toLowerCase().includes('female') && 
+                              !voice.name.toLowerCase().includes('zira') &&
+                              !voice.name.toLowerCase().includes('samantha');
+                option.textContent = `${voice.name} (${voice.lang}) ${isMale ? '👨' : '👩'}`;
+                elements.voiceSelector.appendChild(option);
+            });
+            
+            console.log('Voice selector populated with', voices.length, 'voices');
+        };
+        
+        // Try to populate immediately
+        populateVoiceSelector();
+        
+        // And when voices change
+        window.speechSynthesis.onvoiceschanged = () => {
+            refreshVoices();
+            populateVoiceSelector();
+        };
+    }
     
     // Mobile nav buttons
     document.querySelectorAll('.mobile-nav-btn').forEach(btn => {
@@ -585,34 +642,23 @@ function speakText(text) {
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.rate = 1;
     
-    // Get fresh voices list
-    let voices = window.speechSynthesis.getVoices();
-    if (!voices || voices.length === 0) {
-        voices = cachedVoices;
-    }
+    // Use user-selected voice or find best male voice
+    let voice = selectedVoice || getBestMaleVoice();
     
-    // Try to find a good male voice (Daniel/British for Obiwon character)
-    const preferredVoice = voices.find(v => v.name.includes('Daniel')) ||
-                          voices.find(v => v.name.toLowerCase().includes('uk english male')) ||
-                          voices.find(v => v.name.toLowerCase().includes('british male')) ||
-                          voices.find(v => v.name.includes('Microsoft David')) ||
-                          voices.find(v => v.name.includes('Microsoft James')) ||
-                          voices.find(v => v.name.includes('Microsoft George')) ||
-                          voices.find(v => v.name.includes('Fred')) ||
-                          voices.find(v => v.name.includes('Alex')) ||
-                          voices.find(v => v.name.toLowerCase().includes('english male') && !v.name.toLowerCase().includes('female')) ||
-                          voices.find(v => v.lang === 'en-GB' && !v.name.toLowerCase().includes('female')) ||
-                          voices.find(v => v.lang === 'en-GB');
-    
-    if (preferredVoice) {
-        utterance.voice = preferredVoice;
-        // Slightly lower pitch for more masculine sound (0.9 is subtle but noticeable)
-        utterance.pitch = preferredVoice.name.toLowerCase().includes('female') ? 0.85 : 0.95;
-        console.log('Using voice:', preferredVoice.name, preferredVoice.lang, 'pitch:', utterance.pitch);
+    if (voice) {
+        utterance.voice = voice;
+        // Lower pitch if voice name suggests female
+        const isFemale = voice.name.toLowerCase().includes('female') || 
+                        voice.name.toLowerCase().includes('woman') ||
+                        voice.name.toLowerCase().includes('zira') ||
+                        voice.name.toLowerCase().includes('samantha');
+        utterance.pitch = isFemale ? 0.8 : 0.95;
+        console.log('Using voice:', voice.name, voice.lang, 'pitch:', utterance.pitch);
     } else {
-        // If no male voice found, lower pitch to make it sound more masculine
-        utterance.pitch = 0.85;
-        console.log('No preferred male voice found, using default with lowered pitch');
+        // No voice available yet - wait and retry
+        console.log('Voices not loaded yet, waiting...');
+        setTimeout(() => speakText(text), 500);
+        return;
     }
     
     window.speechSynthesis.speak(utterance);
@@ -620,11 +666,87 @@ function speakText(text) {
 
 // Ensure voices are loaded - mobile browsers load voices asynchronously
 let cachedVoices = [];
+let selectedVoice = null; // User-selected voice preference
 
 function refreshVoices() {
     cachedVoices = window.speechSynthesis.getVoices();
     console.log('Available voices:', cachedVoices.map(v => `${v.name} (${v.lang})`).join(', '));
+    
+    // Log all voice names for debugging
+    console.log('All available voices:');
+    cachedVoices.forEach((v, i) => {
+        console.log(`${i}: ${v.name} (${v.lang}) - ${v.default ? 'DEFAULT' : ''}`);
+    });
+    
     return cachedVoices;
+}
+
+function getBestMaleVoice() {
+    const voices = cachedVoices.length > 0 ? cachedVoices : window.speechSynthesis.getVoices();
+    
+    if (!voices || voices.length === 0) {
+        console.log('No voices available yet');
+        return null;
+    }
+    
+    // Priority order for male voices
+    const maleVoicePatterns = [
+        { name: 'Daniel', priority: 1 },
+        { name: 'Google UK English Male', priority: 2 },
+        { name: 'Microsoft David', priority: 3 },
+        { name: 'Microsoft James', priority: 4 },
+        { name: 'Microsoft George', priority: 5 },
+        { name: 'Fred', priority: 6 },
+        { name: 'Alex', priority: 7 },
+        { name: 'Tom', priority: 8 },
+        { name: 'Arthur', priority: 9 },
+        { name: 'Google US English Male', priority: 10 },
+    ];
+    
+    // Try exact matches first
+    for (const pattern of maleVoicePatterns) {
+        const match = voices.find(v => v.name === pattern.name);
+        if (match) {
+            console.log('Found exact match male voice:', match.name);
+            return match;
+        }
+    }
+    
+    // Try partial matches
+    const partialPatterns = [
+        v => v.name.toLowerCase().includes('daniel'),
+        v => v.name.toLowerCase().includes('uk english male'),
+        v => v.name.toLowerCase().includes('british male'),
+        v => v.name.toLowerCase().includes('english male') && !v.name.toLowerCase().includes('female'),
+        v => v.lang === 'en-GB' && !v.name.toLowerCase().includes('female'),
+        v => v.lang === 'en-GB',
+    ];
+    
+    for (const pattern of partialPatterns) {
+        const match = voices.find(pattern);
+        if (match) {
+            console.log('Found partial match male voice:', match.name);
+            return match;
+        }
+    }
+    
+    // Fallback: pick any non-female English voice
+    const nonFemale = voices.find(v => 
+        v.lang.startsWith('en') && 
+        !v.name.toLowerCase().includes('female') &&
+        !v.name.toLowerCase().includes('woman') &&
+        !v.name.toLowerCase().includes('girl') &&
+        !v.name.toLowerCase().includes('zira') &&
+        !v.name.toLowerCase().includes('samantha')
+    );
+    
+    if (nonFemale) {
+        console.log('Found non-female voice:', nonFemale.name);
+        return nonFemale;
+    }
+    
+    console.log('No male voice found, returning first English voice');
+    return voices.find(v => v.lang.startsWith('en')) || voices[0];
 }
 
 if (window.speechSynthesis) {
