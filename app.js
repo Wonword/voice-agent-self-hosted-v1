@@ -584,25 +584,57 @@ function speakText(text) {
     
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.rate = 1;
-    utterance.pitch = 1;
     
-    // Try to find a good male voice (Daniel for British Obiwon character)
-    const voices = window.speechSynthesis.getVoices();
+    // Get fresh voices list
+    let voices = window.speechSynthesis.getVoices();
+    if (!voices || voices.length === 0) {
+        voices = cachedVoices;
+    }
+    
+    // Try to find a good male voice (Daniel/British for Obiwon character)
     const preferredVoice = voices.find(v => v.name.includes('Daniel')) ||
-                          voices.find(v => v.name.includes('Google UK English Male')) ||
+                          voices.find(v => v.name.toLowerCase().includes('uk english male')) ||
+                          voices.find(v => v.name.toLowerCase().includes('british male')) ||
                           voices.find(v => v.name.includes('Microsoft David')) ||
                           voices.find(v => v.name.includes('Microsoft James')) ||
+                          voices.find(v => v.name.includes('Microsoft George')) ||
                           voices.find(v => v.name.includes('Fred')) ||
                           voices.find(v => v.name.includes('Alex')) ||
+                          voices.find(v => v.name.toLowerCase().includes('english male') && !v.name.toLowerCase().includes('female')) ||
+                          voices.find(v => v.lang === 'en-GB' && !v.name.toLowerCase().includes('female')) ||
                           voices.find(v => v.lang === 'en-GB');
-    if (preferredVoice) utterance.voice = preferredVoice;
+    
+    if (preferredVoice) {
+        utterance.voice = preferredVoice;
+        // Slightly lower pitch for more masculine sound (0.9 is subtle but noticeable)
+        utterance.pitch = preferredVoice.name.toLowerCase().includes('female') ? 0.85 : 0.95;
+        console.log('Using voice:', preferredVoice.name, preferredVoice.lang, 'pitch:', utterance.pitch);
+    } else {
+        // If no male voice found, lower pitch to make it sound more masculine
+        utterance.pitch = 0.85;
+        console.log('No preferred male voice found, using default with lowered pitch');
+    }
     
     window.speechSynthesis.speak(utterance);
 }
 
-// Ensure voices are loaded
+// Ensure voices are loaded - mobile browsers load voices asynchronously
+let cachedVoices = [];
+
+function refreshVoices() {
+    cachedVoices = window.speechSynthesis.getVoices();
+    console.log('Available voices:', cachedVoices.map(v => `${v.name} (${v.lang})`).join(', '));
+    return cachedVoices;
+}
+
 if (window.speechSynthesis) {
-    window.speechSynthesis.onvoiceschanged = () => {};
+    // Initial load
+    refreshVoices();
+    
+    // Mobile browsers fire this when voices are available
+    window.speechSynthesis.onvoiceschanged = () => {
+        refreshVoices();
+    };
 }
 
 function addMessage(text, sender) {
