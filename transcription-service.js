@@ -19,8 +19,8 @@ const CONFIG = {
   geminiTimeout: 30000,
   geminiModel: 'gemini-2.0-flash',
   
-  // Whisper settings
-  whisperPath: '/opt/homebrew/bin/whisper',
+  // Whisper settings - check multiple possible locations
+  whisperPath: process.env.WHISPER_PATH || '/opt/homebrew/bin/whisper',
   whisperModel: process.env.WHISPER_MODEL || 'large-v3-turbo',
   whisperTimeout: 60000,
   useWhisperFallback: process.env.USE_WHISPER_FALLBACK !== 'false',
@@ -161,16 +161,49 @@ async function transcribeWithGemini(audioBuffer, mimeType, options = {}) {
 }
 
 /**
- * Check if Whisper is available
+ * Check if Whisper is available at various possible paths
+ * @returns {Object} {available: boolean, path: string}
+ */
+function findWhisper() {
+  const possiblePaths = [
+    CONFIG.whisperPath,
+    '/opt/homebrew/bin/whisper',
+    '/usr/local/bin/whisper',
+    '/Users/obiwon/.openclaw/workspace/skills/voice-agent/venv/bin/whisper',
+    './venv/bin/whisper',
+    'whisper' // Try PATH
+  ];
+  
+  for (const whisperPath of possiblePaths) {
+    try {
+      const result = require('child_process').execSync(`"${whisperPath}" --version 2>/dev/null || ${whisperPath} --version 2>/dev/null`, { 
+        encoding: 'utf8', 
+        timeout: 5000,
+        shell: true
+      });
+      if (result.toLowerCase().includes('whisper')) {
+        console.log(`[Transcription] Found Whisper at: ${whisperPath}`);
+        return { available: true, path: whisperPath };
+      }
+    } catch (e) {
+      // Try next path
+    }
+  }
+  
+  return { available: false, path: CONFIG.whisperPath };
+}
+
+/**
+ * Check if Whisper is available (legacy compatibility)
  * @returns {boolean}
  */
 function isWhisperAvailable() {
-  try {
-    const result = require('child_process').execSync(`"${CONFIG.whisperPath}" --version`, { encoding: 'utf8', timeout: 5000 });
-    return result.includes('whisper');
-  } catch (e) {
-    return false;
+  const found = findWhisper();
+  if (found.available) {
+    // Update the config path if found elsewhere
+    CONFIG.whisperPath = found.path;
   }
+  return found.available;
 }
 
 // Check Whisper availability on module load
@@ -196,10 +229,25 @@ async function transcribeWithLocalWhisper(audioBuffer, mimeType) {
   }
   
   const timestamp = Date.now();
-  const inputFile = path.join(tempDir, `input_${timestamp}.webm`);
+  
+  // Map MIME types to appropriate file extensions
+  const extensionMap = {
+    'audio/webm': 'webm',
+    'audio/mp4': 'm4a',
+    'audio/aac': 'aac',
+    'audio/mpeg': 'mp3',
+    'audio/wav': 'wav',
+    'audio/ogg': 'ogg',
+    'audio/flac': 'flac'
+  };
+  
+  const inputExt = extensionMap[mimeType] || 'webm';
+  const inputFile = path.join(tempDir, `input_${timestamp}.${inputExt}`);
+  
+  console.log(`[Transcription] Whisper input: ${mimeType} -> .${inputExt}`);
   
   try {
-    // Write audio to temp file
+    // Write audio to temp file with correct extension
     await writeFileAsync(inputFile, audioBuffer);
     
     // Run Whisper with optimized settings for accuracy

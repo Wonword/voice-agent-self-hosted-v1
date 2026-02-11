@@ -175,11 +175,27 @@ async function preprocessAudio(buffer, options = {}) {
   }
   
   const timestamp = Date.now();
-  const inputFile = path.join(tempDir, `input_${timestamp}.webm`);
+  const mimeType = detectMimeType(buffer);
+  
+  // Map MIME types to appropriate file extensions for ffmpeg
+  const extensionMap = {
+    'audio/webm': 'webm',
+    'audio/mp4': 'm4a',
+    'audio/aac': 'aac',
+    'audio/mpeg': 'mp3',
+    'audio/wav': 'wav',
+    'audio/ogg': 'ogg',
+    'audio/flac': 'flac'
+  };
+  
+  const inputExt = extensionMap[mimeType] || 'bin';
+  const inputFile = path.join(tempDir, `input_${timestamp}.${inputExt}`);
   const outputFile = path.join(tempDir, `output_${timestamp}.wav`);
   
+  console.log(`[AudioProcessor] Detected MIME type: ${mimeType}, using extension: .${inputExt}`);
+  
   try {
-    // Write input buffer to temp file
+    // Write input buffer to temp file with correct extension
     fs.writeFileSync(inputFile, buffer);
     
     // Build ffmpeg command for audio optimization
@@ -385,6 +401,7 @@ function validateAudio(buffer) {
 
 /**
  * Apply domain-specific text corrections
+ * Enhanced for ESMOD Creative Tech and fashion terminology
  * @param {string} text - Raw transcription
  * @returns {string} Corrected text
  */
@@ -395,30 +412,98 @@ function applyCorrections(text) {
   
   // Common homophone and speech recognition corrections
   const corrections = [
-    // AI/Creative Tech terms
-    { pattern: /\beye\s+(tools?|for|in)\b/gi, replacement: 'AI $1' },
+    // AI/Creative Tech terms - high priority
+    { pattern: /\beye\s+(tools?|for|in|to|and)\b/gi, replacement: 'AI $1' },
     { pattern: /\ba\s+i\s+/gi, replacement: 'AI ' },
+    { pattern: /\bay\s+i\s+/gi, replacement: 'AI ' },
+    { pattern: /\baey\s+i\s+/gi, replacement: 'AI ' },
+    { pattern: /\bhey\s+i\s+/gi, replacement: 'AI ' },
+    { pattern: /\bartificial\s+intelligence\b/gi, replacement: 'AI' },
+    
+    // ESMOD specific
     { pattern: /\besmod\b/gi, replacement: 'ESMOD' },
     { pattern: /\bezmod\b/gi, replacement: 'ESMOD' },
-    { pattern: /\brode\b/gi, replacement: 'RODE' },
-    { pattern: /\broad\b(?=.*framework)/gi, replacement: 'RODE' },
+    { pattern: /\bes\s+mod\b/gi, replacement: 'ESMOD' },
+    { pattern: /\bes\s+mode\b/gi, replacement: 'ESMOD' },
     
-    // Common tech terms
+    // RODE Framework
+    { pattern: /\brode\s+framework\b/gi, replacement: 'RODE framework' },
+    { pattern: /\broad\s+framework\b/gi, replacement: 'RODE framework' },
+    { pattern: /\brode\b(?=.*\bframework\b)/gi, replacement: 'RODE' },
+    { pattern: /\brode\b(?=.*\b(role|objective|details|examples)\b)/gi, replacement: 'RODE' },
+    
+    // Course/Branding terms
+    { pattern: /\bcreative\s+tech\b/gi, replacement: 'Creative Tech' },
+    { pattern: /\bcreative\s+technology\b/gi, replacement: 'Creative Technology' },
+    { pattern: /\bbrand\s+challenge\b/gi, replacement: 'Brand Challenge' },
+    { pattern: /\bera\s+bending\b/gi, replacement: 'Era Bending' },
+    { pattern: /\bmix\s+board\b/gi, replacement: 'Mix Board' },
+    { pattern: /\bmini\s+exercise\b/gi, replacement: 'Mini Exercise' },
+    
+    // Common AI tools
     { pattern: /\bchat\s*gpt\b/gi, replacement: 'ChatGPT' },
+    { pattern: /\bchat\s+gpt\b/gi, replacement: 'ChatGPT' },
+    { pattern: /\bchad\s+gpt\b/gi, replacement: 'ChatGPT' },
     { pattern: /\bmid\s*journey\b/gi, replacement: 'Midjourney' },
+    { pattern: /\bmidjourney\b/gi, replacement: 'Midjourney' },
     { pattern: /\bstable\s*diffusion\b/gi, replacement: 'Stable Diffusion' },
+    { pattern: /\bdall\s*e\b/gi, replacement: 'DALL-E' },
+    { pattern: /\bclaude\b/gi, replacement: 'Claude' },
+    { pattern: /\bperplexity\b/gi, replacement: 'Perplexity' },
+    { pattern: /\bleonardo\.?ai\b/gi, replacement: 'Leonardo.ai' },
     { pattern: /\bphoto\s*shop\b/gi, replacement: 'Photoshop' },
     { pattern: /\bjava\s+script\b/gi, replacement: 'JavaScript' },
     { pattern: /\btype\s+script\b/gi, replacement: 'TypeScript' },
+    { pattern: /\bnode\s*js\b/gi, replacement: 'Node.js' },
+    { pattern: /\breact\s*js\b/gi, replacement: 'React' },
+    { pattern: /\bnext\s*js\b/gi, replacement: 'Next.js' },
     
-    // Creative terms
+    // Fashion industry terms
+    { pattern: /\bhaute\s+couture\b/gi, replacement: 'haute couture' },
+    { pattern: /\bpr[êe]t[\s-][aà]\s*porter\b/gi, replacement: 'prêt-à-porter' },
+    { pattern: /\bready\s+to\s+wear\b/gi, replacement: 'ready-to-wear' },
+    { pattern: /\bcapsule\s+collection\b/gi, replacement: 'capsule collection' },
+    { pattern: /\bdiffusion\s+line\b/gi, replacement: 'diffusion line' },
+    { pattern: /\blook\s*book\b/gi, replacement: 'lookbook' },
     { pattern: /\bmood\s*board\b/gi, replacement: 'moodboard' },
-    { pattern: /\bbrain\s*storm\b/gi, replacement: 'brainstorm' },
     { pattern: /\bstory\s*board\b/gi, replacement: 'storyboard' },
+    { pattern: /\bfabric\s+board\b/gi, replacement: 'fabric board' },
+    { pattern: /\bcolor\s+palette\b/gi, replacement: 'color palette' },
+    { pattern: /\brunway\b/gi, replacement: 'runway' },
+    { pattern: /\bcatwalk\b/gi, replacement: 'catwalk' },
+    { pattern: /\bgarment\b/gi, replacement: 'garment' },
+    { pattern: /\bsilhouette\b/gi, replacement: 'silhouette' },
+    { pattern: /\btextile\b/gi, replacement: 'textile' },
+    { pattern: /\bfabric\b/gi, replacement: 'fabric' },
+    { pattern: /\bpattern\s+making\b/gi, replacement: 'pattern making' },
+    { pattern: /\batelier\b/gi, replacement: 'atelier' },
+    { pattern: /\bfashion\s+house\b/gi, replacement: 'fashion house' },
+    { pattern: /\bdesigner\s+label\b/gi, replacement: 'designer label' },
+    { pattern: /\bluxury\s+brand\b/gi, replacement: 'luxury brand' },
+    { pattern: /\bfashion\s+week\b/gi, replacement: 'Fashion Week' },
     
-    // General fixes
+    // Creative process terms
+    { pattern: /\bbrain\s*storm\b/gi, replacement: 'brainstorm' },
+    { pattern: /\bbrain\s+storming\b/gi, replacement: 'brainstorming' },
+    { pattern: /\bideation\b/gi, replacement: 'ideation' },
+    { pattern: /\bconcept\s+development\b/gi, replacement: 'concept development' },
+    { pattern: /\brapid\s+prototyping\b/gi, replacement: 'rapid prototyping' },
+    { pattern: /\biterative\s+design\b/gi, replacement: 'iterative design' },
+    { pattern: /\bdesign\s+thinking\b/gi, replacement: 'design thinking' },
+    { pattern: /\buser\s+experience\b/gi, replacement: 'user experience' },
+    { pattern: /\buser\s+interface\b/gi, replacement: 'user interface' },
+    
+    // Rubric/Grading terms
+    { pattern: /\bgrading\s+rubric\b/gi, replacement: 'grading rubric' },
+    { pattern: /\bassessment\s+criteria\b/gi, replacement: 'assessment criteria' },
+    { pattern: /\bten\s+points\b/gi, replacement: '10 points' },
+    { pattern: /\bten\s*\/\s*10\b/gi, replacement: '10/10' },
+    
+    // Common contractions and speech artifacts
     { pattern: /\bi\s+mean\b/gi, replacement: 'I mean' },
     { pattern: /\bi\s+think\b/gi, replacement: 'I think' },
+    { pattern: /\bi\s+guess\b/gi, replacement: 'I guess' },
+    { pattern: /\bi\s+suppose\b/gi, replacement: 'I suppose' },
     { pattern: /\bim\b/g, replacement: "I'm" },
     { pattern: /\bdont\b/g, replacement: "don't" },
     { pattern: /\bwont\b/g, replacement: "won't" },
@@ -430,14 +515,51 @@ function applyCorrections(text) {
     { pattern: /\bwouldnt\b/g, replacement: "wouldn't" },
     { pattern: /\bcouldnt\b/g, replacement: "couldn't" },
     { pattern: /\bshouldnt\b/g, replacement: "shouldn't" },
+    { pattern: /\bthats\b/g, replacement: "that's" },
+    { pattern: /\btheres\b/g, replacement: "there's" },
+    { pattern: /\bheres\b/g, replacement: "here's" },
+    { pattern: /\bwhats\b/g, replacement: "what's" },
+    { pattern: /\bwheres\b/g, replacement: "where's" },
+    { pattern: /\bhows\b/g, replacement: "how's" },
+    { pattern: /\bits\b(?=\s+(?:a|an|the|not))/g, replacement: "it's" },
+    { pattern: /\byoure\b/g, replacement: "you're" },
+    { pattern: /\bwere\b(?=\s+(?:going|planning|working))/g, replacement: "we're" },
+    { pattern: /\btheyre\b/g, replacement: "they're" },
+    { pattern: /\bill\b/g, replacement: "I'll" },
+    { pattern: /\byoul\b/g, replacement: "you'll" },
+    { pattern: /\bhell\b/g, replacement: "he'll" },
+    { pattern: /\bshell\b/g, replacement: "she'll" },
+    { pattern: /\bwell\b(?=\s+(?:see|try|do|have))/g, replacement: "we'll" },
+    { pattern: /\bdont\b/g, replacement: "don't" },
+    { pattern: /\bwont\b/g, replacement: "won't" },
+    
+    // Common misheard words/phrases
+    { pattern: /\buhm\b/gi, replacement: 'um' },
+    { pattern: /\bahm\b/gi, replacement: 'um' },
+    { pattern: /\buh\b/gi, replacement: '' },
+    { pattern: /\blike\s+like\b/gi, replacement: 'like' },
+    { pattern: /\byou\s+know\s+what\s+i\s+mean\b/gi, replacement: '' },
+    { pattern: /\bi\s+mean,?\s+like\b/gi, replacement: '' },
+    { pattern: /\bsort\s+of\b/gi, replacement: '' },
+    { pattern: /\bkind\s+of\b/gi, replacement: '' },
+    
+    // Punctuation fixes
+    { pattern: /\s+,/g, replacement: ',' },
+    { pattern: /\s+\./g, replacement: '.' },
+    { pattern: /\s+\?/g, replacement: '?' },
+    { pattern: /\s+!/g, replacement: '!' },
+    { pattern: /\.\s*\.\s*\./g, replacement: '...' },
   ];
   
   for (const correction of corrections) {
     corrected = corrected.replace(correction.pattern, correction.replacement);
   }
   
-  // Clean up multiple spaces
+  // Clean up multiple spaces and trim
   corrected = corrected.replace(/\s+/g, ' ').trim();
+  
+  // Remove leading/trailing punctuation artifacts
+  corrected = corrected.replace(/^[,.\s]+|[,.\s]+$/g, '');
   
   return corrected;
 }
@@ -446,8 +568,11 @@ module.exports = {
   analyzeAudioQuality,
   detectMimeType,
   preprocessAudio,
+  preprocessAudioQuick,
   calculateConfidence,
   validateAudio,
   applyCorrections,
+  isFfmpegAvailable,
+  FFMPEG_AVAILABLE,
   AUDIO_CONFIG
 };
