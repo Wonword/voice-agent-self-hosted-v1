@@ -275,10 +275,13 @@ async function speakText(text) {
     if (vizFrame) vizFrame.classList.add('speaking');
 
     try {
+        // Remove markdown asterisks so TTS doesn't literally say "asterisk"
+        const cleanText = text.replace(/\*/g, '');
+
         const response = await fetch(`${API_BASE_URL}/tts`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text, voice })
+            body: JSON.stringify({ text: cleanText, voice })
         });
 
         if (!response.ok) throw new Error('TTS fetch failed');
