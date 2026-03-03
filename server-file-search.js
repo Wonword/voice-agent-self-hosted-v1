@@ -216,7 +216,7 @@ const server = http.createServer((req, res) => {
     
     // Serve the main HTML file
     if (req.method === 'GET' && req.url === '/') {
-        serveFile(res, '/Users/obiwon/.openclaw/workspace/obiwon-gemini-voice.html', 'text/html');
+        serveFile(res, '/Users/obiwon/.openclaw/workspace/skills/voice-agent/index.html', 'text/html');
         return;
     }
     

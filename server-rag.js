@@ -27,43 +27,44 @@ const server = http.createServer((req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-    
+
     if (req.method === 'OPTIONS') {
         res.writeHead(200);
         res.end();
         return;
     }
-    
+
     // Handle audio upload for transcription
     if (req.method === 'POST' && req.url === '/transcribe') {
         handleGeminiTranscription(req, res);
         return;
     }
-    
+
     // Handle chat with Gemini (text only)
     if (req.method === 'POST' && req.url === '/chat') {
         handleGeminiChat(req, res);
         return;
     }
-    
+
     // Handle voice chat with Gemini (audio response)
     if (req.method === 'POST' && req.url === '/chat-voice') {
         handleGeminiVoiceChat(req, res);
         return;
     }
-    
+
     // Serve the main HTML file
     if (req.method === 'GET' && req.url === '/') {
+        res.setHeader('X-Server-Name', 'SELF-HOSTED-v1-server-rag');
         serveFile(res, '/Users/obiwon/.openclaw/workspace/obiwon-gemini-voice.html', 'text/html');
         return;
     }
-    
+
     // Serve avatar
     if (req.method === 'GET' && req.url === '/obiwan-avatar.jpg') {
         serveFile(res, '/Users/obiwon/.openclaw/workspace/obiwan-avatar.jpg', 'image/jpeg');
         return;
     }
-    
+
     // 404
     res.writeHead(404);
     res.end('Not found');
@@ -71,16 +72,16 @@ const server = http.createServer((req, res) => {
 
 async function handleGeminiTranscription(req, res) {
     const chunks = [];
-    
+
     req.on('data', chunk => chunks.push(chunk));
-    
+
     req.on('end', async () => {
         try {
             const buffer = Buffer.concat(chunks);
             const base64Audio = buffer.toString('base64');
-            
+
             console.log(`[${new Date().toISOString()}] Transcribing audio with Gemini...`);
-            
+
             // Call Gemini API for transcription
             const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + GEMINI_API_KEY, {
                 method: 'POST',
@@ -99,15 +100,15 @@ async function handleGeminiTranscription(req, res) {
                     }]
                 })
             });
-            
+
             const responseData = await response.json();
             const transcription = responseData.candidates?.[0]?.content?.parts?.[0]?.text || '';
-            
+
             console.log(`[${new Date().toISOString()}] Transcribed: "${transcription.substring(0, 100)}..."`);
-            
+
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ transcript: transcription }));
-            
+
         } catch (error) {
             console.error('Gemini transcription error:', error);
             res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -166,9 +167,9 @@ async function handleGeminiChat(req, res) {
         try {
             const data = JSON.parse(body);
             const userMessage = data.message;
-            
+
             console.log(`[${new Date().toISOString()}] Gemini chat: "${userMessage.substring(0, 50)}..."`);
-            
+
             const systemPrompt = getSystemPrompt(userMessage);
 
             const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + GEMINI_API_KEY, {
@@ -178,13 +179,13 @@ async function handleGeminiChat(req, res) {
                     contents: [{ parts: [{ text: systemPrompt }] }]
                 })
             });
-            
+
             const responseData = await response.json();
             const aiResponse = responseData.candidates?.[0]?.content?.parts?.[0]?.text || 'I apologize, I could not generate a response.';
-            
+
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ response: aiResponse }));
-            
+
         } catch (error) {
             console.error('Gemini chat error:', error);
             res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -200,9 +201,9 @@ async function handleGeminiVoiceChat(req, res) {
         try {
             const data = JSON.parse(body);
             const userMessage = data.message;
-            
+
             console.log(`[${new Date().toISOString()}] Gemini voice chat: "${userMessage.substring(0, 50)}..."`);
-            
+
             const systemPrompt = getSystemPrompt(userMessage);
 
             // Get text response from Gemini
@@ -213,13 +214,13 @@ async function handleGeminiVoiceChat(req, res) {
                     contents: [{ parts: [{ text: systemPrompt }] }]
                 })
             });
-            
+
             const textData = await textResponse.json();
             const aiResponse = textData.candidates?.[0]?.content?.parts?.[0]?.text || 'I apologize, I could not generate a response.';
-            
+
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ response: aiResponse }));
-            
+
         } catch (error) {
             console.error('Gemini voice chat error:', error);
             res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -258,7 +259,7 @@ setInterval(() => {
             fs.stat(filePath, (err, stats) => {
                 if (err) return;
                 if (now - stats.mtime.getTime() > 3600000) {
-                    fs.unlink(filePath, () => {});
+                    fs.unlink(filePath, () => { });
                 }
             });
         });

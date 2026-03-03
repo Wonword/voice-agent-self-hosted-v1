@@ -1,0 +1,9 @@
+node_modules/
+venv/
+.env
+uploads/
+*.wav
+*.log
+.DS_Store
+kokoro-v1.0.onnx
+voices-v1.0.bin

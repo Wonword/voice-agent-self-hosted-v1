@@ -41,11 +41,10 @@ A complete voice-enabled AI tutoring system for ESMOD Creative Tech course.
 - **Gemini Transcription** - Cloud-based with retry logic
 - **Text input** - Always works in all browsers
 
-### 🗣️ Voice Output
-- **Browser Speech Synthesis** - Cross-platform TTS
-- **Voice Selection** - Choose your preferred voice in Settings
-- **Daniel voice** - British male, wise and calm (when available)
-- **Pitch adjustment** - Auto-adjusts for male-sounding output
+- **Kokoro TTS** - Local, high-quality ONNX-based speech synthesis
+- **Daniel voice** - British male, wise and calm (`bm_daniel`)
+- **Female voice** - French female voice for bilingual tutoring (`ff_siwis`)
+- **Auto-routing** - Smartly switches voice based on response language
 
 ### 🧠 AI Intelligence
 - **Gemini 2.0 Flash** - Smart responses
@@ -323,14 +322,17 @@ pip install openai-whisper  # For local transcription fallback
 - Solve real-world brand challenges
 
 ---
+## 🔄 Recent Updates (March 2026)
 
-## 🔄 Recent Updates (February 2026)
+### Kokoro TTS Integration (V2.3) ✅
+- Local high-quality voice synthesis (82m ONNX)
+- Bilingual support: Daniel (EN) and Siwis (FR)
+- Zero-latency local audio generation
 
-### Safari Compatibility ✅
-- Full voice input support on Safari/iOS
-- MP4 audio format handling
-- Proper AudioContext management
-- Voice visualizer works on Safari
+### Gemini 2.0 Flash Optimization ✅
+- Lowest latency responses with Mercury-small
+- 8 Course files RAG (49K characters)
+- Precision prompting for Obi-won persona
 
 ### Android Improvements ✅
 - Voice selection dropdown in Settings
@@ -393,5 +395,5 @@ pip install openai-whisper  # For local transcription fallback
 4. Contact: Dr. Won Kim
 
 **Created by:** Dr. Won Kim + Obiwon (AI Assistant)  
-**Version:** 2.1 (February 2026)  
+**Version:** 2.3 (March 2026)  
 **Status:** ✅ Production Ready

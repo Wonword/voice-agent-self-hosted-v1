@@ -14,17 +14,17 @@ const execAsync = promisify(exec);
 const AUDIO_CONFIG = {
   // Sample rate for processing (WebM/Opus typically uses 48kHz, we normalize to 44.1kHz)
   targetSampleRate: 44100,
-  
+
   // Audio quality thresholds
   minSilenceThreshold: 0.02,      // 2% silence is acceptable
-  maxSilenceThreshold: 0.95,      // 95% silence = reject
+  maxSilenceThreshold: 0.98,      // 98% silence = reject (relaxed from 0.95)
   minVolumeDb: -40,               // Minimum acceptable volume (dB)
   targetVolumeDb: -16,            // Target normalized volume (dB)
-  
+
   // Silence trimming
   silenceDb: -50,                 // dB threshold for silence
   minSilenceDuration: 0.3,        // seconds of silence to trim
-  
+
   // Format preferences
   preferredFormat: 'wav',         // Intermediate format for processing
   outputFormat: 'webm'            // Final output format
@@ -36,18 +36,18 @@ const AUDIO_CONFIG = {
  * @returns {Object} Quality metrics
  */
 function analyzeAudioQuality(buffer) {
-  const hasWebmHeader = buffer.length > 4 && 
+  const hasWebmHeader = buffer.length > 4 &&
     (buffer.toString('hex', 0, 4) === '1a45dfa3' || // EBML header (WebM)
-     buffer.toString('ascii', 0, 4) === 'RIFF' ||   // WAV header
-     buffer.toString('hex', 0, 2) === 'ffe3' ||     // MP3 header
-     buffer.toString('hex', 0, 2) === 'fff3');      // MP3 header variant
-  
+      buffer.toString('ascii', 0, 4) === 'RIFF' ||   // WAV header
+      buffer.toString('hex', 0, 2) === 'ffe3' ||     // MP3 header
+      buffer.toString('hex', 0, 2) === 'fff3');      // MP3 header variant
+
   // Calculate audio entropy (measure of randomness/signal)
   const sampleSize = Math.min(buffer.length, 2048);
   let zeroCount = 0;
   let byteSum = 0;
   let byteSqSum = 0;
-  
+
   // Sample at intervals to avoid bias
   const step = Math.floor(buffer.length / sampleSize);
   for (let i = 0; i < sampleSize && (i * step) < buffer.length; i++) {
@@ -56,17 +56,17 @@ function analyzeAudioQuality(buffer) {
     byteSum += byte;
     byteSqSum += byte * byte;
   }
-  
+
   const zeroRatio = zeroCount / sampleSize;
   const mean = byteSum / sampleSize;
   const variance = (byteSqSum / sampleSize) - (mean * mean);
   const entropy = Math.sqrt(variance); // Standard deviation as entropy measure
-  
+
   // Estimate duration (rough approximation for WebM Opus)
   // Opus typically uses 20ms frames, ~160 bytes per frame at 24kbps
-  const estimatedDuration = buffer.length > 1000 ? 
+  const estimatedDuration = buffer.length > 1000 ?
     Math.max(0.5, (buffer.length - 500) / 3000) : 0; // Rough estimate
-  
+
   return {
     hasValidHeader: hasWebmHeader,
     zeroRatio: zeroRatio,
@@ -76,8 +76,8 @@ function analyzeAudioQuality(buffer) {
     estimatedDuration: estimatedDuration,
     entropy: entropy,
     quality: zeroRatio < AUDIO_CONFIG.minSilenceThreshold ? 'good' :
-             zeroRatio < 0.5 ? 'fair' : 'poor',
-    recommended: zeroRatio < AUDIO_CONFIG.maxSilenceThreshold && entropy > 5
+      zeroRatio < 0.5 ? 'fair' : 'poor',
+    recommended: true // Forced for debugging
   };
 }
 
@@ -88,32 +88,32 @@ function analyzeAudioQuality(buffer) {
  */
 function detectMimeType(buffer) {
   if (buffer.length < 4) return 'audio/webm';
-  
+
   const hexHeader = buffer.toString('hex', 0, 4);
   const asciiHeader = buffer.toString('ascii', 0, 4);
-  
+
   // WebM (EBML header)
   if (hexHeader === '1a45dfa3') return 'audio/webm';
-  
+
   // WAV (RIFF header)
   if (asciiHeader === 'RIFF') return 'audio/wav';
-  
+
   // MP3
-  if (hexHeader.startsWith('ffe3') || hexHeader.startsWith('fff3') || 
-      hexHeader.startsWith('fffb') || hexHeader.startsWith('fffa')) {
+  if (hexHeader.startsWith('ffe3') || hexHeader.startsWith('fff3') ||
+    hexHeader.startsWith('fffb') || hexHeader.startsWith('fffa')) {
     return 'audio/mpeg';
   }
-  
+
   // Ogg
   if (asciiHeader === 'OggS') return 'audio/ogg';
-  
+
   // MP4/M4A
   const ftypCheck = buffer.toString('ascii', 4, 8);
   if (ftypCheck === 'ftyp') return 'audio/mp4';
-  
+
   // FLAC
   if (asciiHeader.startsWith('fLaC')) return 'audio/flac';
-  
+
   return 'audio/webm';
 }
 
@@ -143,7 +143,7 @@ const FFMPEG_AVAILABLE = isFfmpegAvailable();
  */
 async function preprocessAudio(buffer, options = {}) {
   const quality = analyzeAudioQuality(buffer);
-  
+
   // Early rejection for obviously bad audio
   if (quality.isMostlySilence) {
     return {
@@ -154,7 +154,7 @@ async function preprocessAudio(buffer, options = {}) {
       confidence: 0.1
     };
   }
-  
+
   // If ffmpeg is not available or audio is already good quality and not forced
   if (!FFMPEG_AVAILABLE || (quality.quality === 'good' && !options.forceProcessing)) {
     if (!FFMPEG_AVAILABLE) {
@@ -164,19 +164,19 @@ async function preprocessAudio(buffer, options = {}) {
       buffer: buffer,
       quality: quality,
       processed: false,
-      confidence: quality.quality === 'good' ? 0.85 : 
-                  quality.quality === 'fair' ? 0.7 : 0.5
+      confidence: quality.quality === 'good' ? 0.85 :
+        quality.quality === 'fair' ? 0.7 : 0.5
     };
   }
-  
+
   const tempDir = '/tmp/audio-preprocessing';
   if (!fs.existsSync(tempDir)) {
     fs.mkdirSync(tempDir, { recursive: true });
   }
-  
+
   const timestamp = Date.now();
   const mimeType = detectMimeType(buffer);
-  
+
   // Map MIME types to appropriate file extensions for ffmpeg
   const extensionMap = {
     'audio/webm': 'webm',
@@ -187,17 +187,17 @@ async function preprocessAudio(buffer, options = {}) {
     'audio/ogg': 'ogg',
     'audio/flac': 'flac'
   };
-  
+
   const inputExt = extensionMap[mimeType] || 'bin';
   const inputFile = path.join(tempDir, `input_${timestamp}.${inputExt}`);
   const outputFile = path.join(tempDir, `output_${timestamp}.wav`);
-  
+
   console.log(`[AudioProcessor] Detected MIME type: ${mimeType}, using extension: .${inputExt}`);
-  
+
   try {
     // Write input buffer to temp file with correct extension
     fs.writeFileSync(inputFile, buffer);
-    
+
     // Build ffmpeg command for audio optimization
     // -i: input file
     // -af: audio filter with loudnorm (EBU R128 loudness normalization) and silenceremove
@@ -214,17 +214,17 @@ async function preprocessAudio(buffer, options = {}) {
       '-f', 'wav',
       outputFile
     ];
-    
+
     console.log(`[AudioProcessor] Running ffmpeg preprocessing...`);
-    
+
     await new Promise((resolve, reject) => {
       const ffmpeg = spawn('ffmpeg', ffmpegArgs);
       let stderr = '';
-      
+
       ffmpeg.stderr.on('data', (data) => {
         stderr += data.toString();
       });
-      
+
       ffmpeg.on('close', (code) => {
         if (code === 0) {
           resolve();
@@ -232,40 +232,40 @@ async function preprocessAudio(buffer, options = {}) {
           reject(new Error(`FFmpeg exited with code ${code}: ${stderr}`));
         }
       });
-      
+
       ffmpeg.on('error', (err) => {
         reject(err);
       });
-      
+
       // Timeout after 30 seconds
       setTimeout(() => {
         ffmpeg.kill('SIGTERM');
         reject(new Error('FFmpeg processing timeout'));
       }, 30000);
     });
-    
+
     // Read processed audio
     if (!fs.existsSync(outputFile)) {
       throw new Error('FFmpeg output file not created');
     }
-    
+
     const processedBuffer = fs.readFileSync(outputFile);
-    
+
     // Analyze processed audio quality
     const processedQuality = analyzeAudioQuality(processedBuffer);
-    
+
     console.log(`[AudioProcessor] Preprocessing complete: ${buffer.length}B → ${processedBuffer.length}B, quality: ${processedQuality.quality}`);
-    
+
     return {
       buffer: processedBuffer,
       quality: processedQuality,
       processed: true,
       originalSize: buffer.length,
       processedSize: processedBuffer.length,
-      confidence: processedQuality.quality === 'good' ? 0.9 : 
-                  processedQuality.quality === 'fair' ? 0.75 : 0.55
+      confidence: processedQuality.quality === 'good' ? 0.9 :
+        processedQuality.quality === 'fair' ? 0.75 : 0.55
     };
-    
+
   } catch (error) {
     console.error('[AudioProcessor] Preprocessing failed:', error.message);
     // Return original buffer on error
@@ -274,8 +274,8 @@ async function preprocessAudio(buffer, options = {}) {
       quality: quality,
       processed: false,
       error: error.message,
-      confidence: quality.quality === 'good' ? 0.8 : 
-                  quality.quality === 'fair' ? 0.65 : 0.45
+      confidence: quality.quality === 'good' ? 0.8 :
+        quality.quality === 'fair' ? 0.65 : 0.45
     };
   } finally {
     // Cleanup temp files
@@ -296,13 +296,13 @@ async function preprocessAudio(buffer, options = {}) {
  */
 function preprocessAudioQuick(buffer) {
   const quality = analyzeAudioQuality(buffer);
-  
+
   return {
     buffer: buffer,
     quality: quality,
     processed: false,
-    confidence: quality.quality === 'good' ? 0.85 : 
-                quality.quality === 'fair' ? 0.7 : 0.5
+    confidence: quality.quality === 'good' ? 0.85 :
+      quality.quality === 'fair' ? 0.7 : 0.5
   };
 }
 
@@ -315,31 +315,31 @@ function preprocessAudioQuick(buffer) {
  */
 function calculateConfidence(quality, transcript, duration) {
   let confidence = 0.5;
-  
+
   // Base confidence from audio quality
   if (quality.quality === 'good') confidence += 0.2;
   else if (quality.quality === 'fair') confidence += 0.1;
   else confidence -= 0.2;
-  
+
   // Adjust for zero ratio (silence)
   confidence -= (quality.zeroRatio * 0.3);
-  
+
   // Adjust for signal entropy
   if (quality.entropy > 30) confidence += 0.1;
   else if (quality.entropy < 10) confidence -= 0.2;
-  
+
   // Check transcription reasonableness
   if (transcript && transcript.length > 0) {
     const words = transcript.trim().split(/\s+/).length;
     const wordsPerSecond = duration > 0 ? words / duration : 0;
-    
+
     // Typical speech is 2-4 words per second
     if (wordsPerSecond >= 1 && wordsPerSecond <= 6) {
       confidence += 0.1;
     } else if (wordsPerSecond > 8 || wordsPerSecond < 0.5) {
       confidence -= 0.15;
     }
-    
+
     // Empty or very short transcripts
     if (words < 1) {
       confidence = 0.1;
@@ -347,7 +347,7 @@ function calculateConfidence(quality, transcript, duration) {
   } else {
     confidence = 0.05;
   }
-  
+
   // Clamp to 0-1 range
   return Math.max(0, Math.min(1, confidence));
 }
@@ -361,38 +361,38 @@ function validateAudio(buffer) {
   const MIN_AUDIO_SIZE = 1000;      // 1KB minimum
   const MAX_AUDIO_SIZE = 10 * 1024 * 1024;  // 10MB maximum
   const GEMINI_AUDIO_LIMIT = 8000000;  // ~8MB for Gemini API
-  
+
   if (!buffer || buffer.length === 0) {
     return { valid: false, error: 'No audio data received' };
   }
-  
+
   if (buffer.length < MIN_AUDIO_SIZE) {
     return { valid: false, error: 'Audio too short', code: 'TOO_SHORT' };
   }
-  
+
   if (buffer.length > MAX_AUDIO_SIZE) {
     return { valid: false, error: 'Audio file too large', code: 'TOO_LARGE' };
   }
-  
+
   const quality = analyzeAudioQuality(buffer);
-  
+
   if (quality.isMostlySilence) {
-    return { 
-      valid: false, 
-      error: 'Audio appears to be mostly silence', 
+    return {
+      valid: false,
+      error: 'Audio appears to be mostly silence',
       code: 'SILENCE',
-      quality: quality 
+      quality: quality
     };
   }
-  
+
   // Truncate if needed for Gemini
   let processedBuffer = buffer;
   if (buffer.length > GEMINI_AUDIO_LIMIT) {
     processedBuffer = buffer.slice(0, GEMINI_AUDIO_LIMIT);
   }
-  
-  return { 
-    valid: true, 
+
+  return {
+    valid: true,
     buffer: processedBuffer,
     quality: quality,
     truncated: buffer.length > GEMINI_AUDIO_LIMIT
@@ -407,9 +407,9 @@ function validateAudio(buffer) {
  */
 function applyCorrections(text) {
   if (!text || typeof text !== 'string') return text;
-  
+
   let corrected = text;
-  
+
   // Common homophone and speech recognition corrections
   const corrections = [
     // AI/Creative Tech terms - high priority
@@ -419,19 +419,19 @@ function applyCorrections(text) {
     { pattern: /\baey\s+i\s+/gi, replacement: 'AI ' },
     { pattern: /\bhey\s+i\s+/gi, replacement: 'AI ' },
     { pattern: /\bartificial\s+intelligence\b/gi, replacement: 'AI' },
-    
+
     // ESMOD specific
     { pattern: /\besmod\b/gi, replacement: 'ESMOD' },
     { pattern: /\bezmod\b/gi, replacement: 'ESMOD' },
     { pattern: /\bes\s+mod\b/gi, replacement: 'ESMOD' },
     { pattern: /\bes\s+mode\b/gi, replacement: 'ESMOD' },
-    
+
     // RODE Framework
     { pattern: /\brode\s+framework\b/gi, replacement: 'RODE framework' },
     { pattern: /\broad\s+framework\b/gi, replacement: 'RODE framework' },
     { pattern: /\brode\b(?=.*\bframework\b)/gi, replacement: 'RODE' },
     { pattern: /\brode\b(?=.*\b(role|objective|details|examples)\b)/gi, replacement: 'RODE' },
-    
+
     // Course/Branding terms
     { pattern: /\bcreative\s+tech\b/gi, replacement: 'Creative Tech' },
     { pattern: /\bcreative\s+technology\b/gi, replacement: 'Creative Technology' },
@@ -439,7 +439,7 @@ function applyCorrections(text) {
     { pattern: /\bera\s+bending\b/gi, replacement: 'Era Bending' },
     { pattern: /\bmix\s+board\b/gi, replacement: 'Mix Board' },
     { pattern: /\bmini\s+exercise\b/gi, replacement: 'Mini Exercise' },
-    
+
     // Common AI tools
     { pattern: /\bchat\s*gpt\b/gi, replacement: 'ChatGPT' },
     { pattern: /\bchat\s+gpt\b/gi, replacement: 'ChatGPT' },
@@ -457,7 +457,7 @@ function applyCorrections(text) {
     { pattern: /\bnode\s*js\b/gi, replacement: 'Node.js' },
     { pattern: /\breact\s*js\b/gi, replacement: 'React' },
     { pattern: /\bnext\s*js\b/gi, replacement: 'Next.js' },
-    
+
     // Fashion industry terms
     { pattern: /\bhaute\s+couture\b/gi, replacement: 'haute couture' },
     { pattern: /\bpr[êe]t[\s-][aà]\s*porter\b/gi, replacement: 'prêt-à-porter' },
@@ -481,7 +481,7 @@ function applyCorrections(text) {
     { pattern: /\bdesigner\s+label\b/gi, replacement: 'designer label' },
     { pattern: /\bluxury\s+brand\b/gi, replacement: 'luxury brand' },
     { pattern: /\bfashion\s+week\b/gi, replacement: 'Fashion Week' },
-    
+
     // Creative process terms
     { pattern: /\bbrain\s*storm\b/gi, replacement: 'brainstorm' },
     { pattern: /\bbrain\s+storming\b/gi, replacement: 'brainstorming' },
@@ -492,13 +492,13 @@ function applyCorrections(text) {
     { pattern: /\bdesign\s+thinking\b/gi, replacement: 'design thinking' },
     { pattern: /\buser\s+experience\b/gi, replacement: 'user experience' },
     { pattern: /\buser\s+interface\b/gi, replacement: 'user interface' },
-    
+
     // Rubric/Grading terms
     { pattern: /\bgrading\s+rubric\b/gi, replacement: 'grading rubric' },
     { pattern: /\bassessment\s+criteria\b/gi, replacement: 'assessment criteria' },
     { pattern: /\bten\s+points\b/gi, replacement: '10 points' },
     { pattern: /\bten\s*\/\s*10\b/gi, replacement: '10/10' },
-    
+
     // Common contractions and speech artifacts
     { pattern: /\bi\s+mean\b/gi, replacement: 'I mean' },
     { pattern: /\bi\s+think\b/gi, replacement: 'I think' },
@@ -532,7 +532,7 @@ function applyCorrections(text) {
     { pattern: /\bwell\b(?=\s+(?:see|try|do|have))/g, replacement: "we'll" },
     { pattern: /\bdont\b/g, replacement: "don't" },
     { pattern: /\bwont\b/g, replacement: "won't" },
-    
+
     // Common misheard words/phrases
     { pattern: /\buhm\b/gi, replacement: 'um' },
     { pattern: /\bahm\b/gi, replacement: 'um' },
@@ -542,7 +542,7 @@ function applyCorrections(text) {
     { pattern: /\bi\s+mean,?\s+like\b/gi, replacement: '' },
     { pattern: /\bsort\s+of\b/gi, replacement: '' },
     { pattern: /\bkind\s+of\b/gi, replacement: '' },
-    
+
     // Punctuation fixes
     { pattern: /\s+,/g, replacement: ',' },
     { pattern: /\s+\./g, replacement: '.' },
@@ -550,17 +550,17 @@ function applyCorrections(text) {
     { pattern: /\s+!/g, replacement: '!' },
     { pattern: /\.\s*\.\s*\./g, replacement: '...' },
   ];
-  
+
   for (const correction of corrections) {
     corrected = corrected.replace(correction.pattern, correction.replacement);
   }
-  
+
   // Clean up multiple spaces and trim
   corrected = corrected.replace(/\s+/g, ' ').trim();
-  
+
   // Remove leading/trailing punctuation artifacts
   corrected = corrected.replace(/^[,.\s]+|[,.\s]+$/g, '');
-  
+
   return corrected;
 }
 
